@@ -1,0 +1,134 @@
+
+export enum ClientStatus {
+  Active = '已签约',
+  Lead = '潜在客户',
+  Churned = '已流失',
+}
+
+export enum Sentiment {
+  Positive = '积极',
+  Neutral = '中性',
+  Negative = '消极',
+}
+
+export interface Contact {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+  phone: string;
+}
+
+export interface Shareholder {
+  name: string;
+  percentage: number; // 0-100
+  type?: 'individual' | 'institution';
+}
+
+export interface Client {
+  id: string;
+  name: string;
+  industry: string;
+  status: ClientStatus;
+  region: string;
+  contacts: Contact[];
+  
+  // Owner info
+  ownerId?: string;
+  ownerName?: string;
+
+  // Dynamic fields
+  customFields?: Record<string, string>;
+  // AI Profile Data
+  equityStructure?: Shareholder[]; // Now structured data
+  financialAnalysis?: string;
+  supplyChainInfo?: string;
+}
+
+export interface VisitRecording {
+  id: string;
+  url: string; // Base64 Data URL
+  duration?: number; // In seconds
+  timestamp: string;
+}
+
+export interface Visit {
+  id: string;
+  clientId: string;
+  clientName: string;
+  date: string; // ISO String
+  content: string; // Raw notes or transcript
+  type: '线下拜访' | '线上会议' | '电话沟通' | '客户到访';
+  
+  // Visit Details
+  location?: string;
+  clientParticipants?: string; // Comma separated names
+  ourParticipants?: string;    // Comma separated names
+
+  // Owner info
+  ownerId?: string;
+  ownerName?: string;
+
+  // Audio Data
+  recordings?: VisitRecording[]; // New field for multiple recordings
+  recordingData?: string; // Deprecated: Kept for backward compatibility
+
+  // AI Generated fields
+  summary?: string;
+  sentiment?: Sentiment;
+  actionItems?: string[];
+  followUpDraft?: string;
+  
+  // Dynamic fields
+  customFields?: Record<string, string>;
+}
+
+export interface Role {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface Department {
+  id: string;
+  name: string;
+  parentId: string | null;
+  managerId?: string;
+}
+
+// Tree structure helper type
+export interface DepartmentNode extends Department {
+  children?: DepartmentNode[];
+  level?: number;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  email?: string;
+  roleId?: string; // Relation to Role
+  departmentId?: string; // Relation to Department
+  avatarUrl: string;
+  status?: 'active' | 'inactive';
+  role?: string; // Legacy string or display name
+  customFields?: Record<string, string>;
+}
+
+export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES';
+
+export interface AppSettings {
+  aiModel: 'gemini' | 'deepseek'; // deepseek is placeholder logic
+  themeColor: string;
+}
+
+export type EntityType = 'CLIENT' | 'VISIT' | 'USER';
+export type FieldType = 'text' | 'number' | 'date' | 'select';
+
+export interface CustomFieldDefinition {
+  id: string;
+  entityType: EntityType;
+  key: string;
+  label: string;
+  type: FieldType;
+  options?: string[]; // For select type, comma separated
+}
