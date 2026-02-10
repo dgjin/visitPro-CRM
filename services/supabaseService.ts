@@ -85,6 +85,13 @@ export const upsertVisit = async (visitData: Visit) => {
   if (error) console.error('Error saving visit:', error);
 };
 
+export const deleteVisit = async (id: string) => {
+  const client = getSupabase();
+  if (!client) return;
+  const { error } = await client.from('visits').delete().eq('id', id);
+  if (error) console.error('Error deleting visit:', error);
+};
+
 // --- Roles ---
 export const fetchRoles = async (): Promise<Role[] | null> => {
   const client = getSupabase();

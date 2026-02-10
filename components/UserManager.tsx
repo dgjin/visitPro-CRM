@@ -29,6 +29,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
         id: editingUser.id || Date.now().toString(),
         name: editingUser.name,
         email: editingUser.email || '',
+        phone: editingUser.phone || '', // Save Phone
         avatarUrl: editingUser.avatarUrl || `https://ui-avatars.com/api/?name=${editingUser.name}&background=random`,
         roleId: editingUser.roleId,
         departmentId: editingUser.departmentId,
@@ -106,6 +107,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                                <div>
                                   <div className="font-medium text-slate-800">{user.name}</div>
                                   <div className="text-xs text-slate-500">{user.email}</div>
+                                  {user.phone && <div className="text-xs text-slate-400">{user.phone}</div>}
                                </div>
                             </div>
                          </td>
@@ -152,12 +154,21 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                         onChange={e => setEditingUser(prev => ({ ...prev, name: e.target.value }))}
                      />
                   </div>
-                  <div className="col-span-2">
+                  <div>
                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">邮箱</label>
                      <input 
                         className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         value={editingUser.email || ''}
                         onChange={e => setEditingUser(prev => ({ ...prev, email: e.target.value }))}
+                     />
+                  </div>
+                  <div>
+                     <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">电话</label>
+                     <input 
+                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        value={editingUser.phone || ''}
+                        onChange={e => setEditingUser(prev => ({ ...prev, phone: e.target.value }))}
+                        placeholder="138-xxxx-xxxx"
                      />
                   </div>
                   <div>

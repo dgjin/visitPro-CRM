@@ -8,7 +8,7 @@ create extension if not exists "uuid-ossp";
 -- 2. 创建基础配置表 (Roles, Departments)
 
 -- Roles 表
-create table public.roles (
+create table if not exists public.roles (
     "id" text primary key,
     "name" text not null,
     "description" text,
@@ -16,7 +16,7 @@ create table public.roles (
 );
 
 -- Departments 表
-create table public.departments (
+create table if not exists public.departments (
     "id" text primary key,
     "name" text not null,
     "parentId" text references public.departments("id"), -- 自关联实现树形结构
@@ -25,7 +25,7 @@ create table public.departments (
 );
 
 -- 3. 创建 Users 表 (扩展 Supabase Auth 或独立管理)
-create table public.users (
+create table if not exists public.users (
     "id" text primary key,
     "name" text not null,
     "email" text,
@@ -38,7 +38,7 @@ create table public.users (
 );
 
 -- 4. 创建 Clients 表
-create table public.clients (
+create table if not exists public.clients (
     "id" text primary key, -- 前端生成的时间戳ID或UUID
     "name" text not null,
     "industry" text,
@@ -56,7 +56,7 @@ create table public.clients (
 );
 
 -- 5. 创建 Visits 表
-create table public.visits (
+create table if not exists public.visits (
     "id" text primary key,
     "clientId" text references public.clients("id"),
     "clientName" text, -- 冗余字段，便于列表展示
@@ -68,8 +68,14 @@ create table public.visits (
     "ownerId" text,
     "ownerName" text,
     
+    -- 拜访详情 (新增)
+    "location" text,
+    "clientParticipants" text,
+    "ourParticipants" text,
+    
     -- 录音数据 (新增 - Base64)
     "recordingData" text,
+    "recordings" jsonb default '[]'::jsonb, -- 支持多录音文件
 
     -- 扩展字段
     "customFields" jsonb default '{}'::jsonb,
@@ -100,5 +106,33 @@ create policy "Enable all access for clients" on public.clients for all using (t
 create policy "Enable all access for visits" on public.visits for all using (true) with check (true);
 
 -- 8. 索引
-create index idx_users_dept on public.users ("departmentId");
-create index idx_depts_parent on public.departments ("parentId");
+create index if not exists idx_users_dept on public.users ("departmentId");
+create index if not exists idx_depts_parent on public.departments ("parentId");
+
+-- ==========================================
+-- 9. 迁移脚本 (Migration Scripts)
+-- ==========================================
+
+-- 9.2 更新 Visits 表
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_name = 'visits' and column_name = 'ownerId') then
+    alter table public.visits add column "ownerId" text;
+  end if;
+
+  if not exists (select 1 from information_schema.columns where table_name = 'visits' and column_name = 'ownerName') then
+    alter table public.visits add column "ownerName" text;
+  end if;
+
+  if not exists (select 1 from information_schema.columns where table_name = 'visits' and column_name = 'location') then
+    alter table public.visits add column "location" text;
+  end if;
+
+  if not exists (select 1 from information_schema.columns where table_name = 'visits' and column_name = 'recordingData') then
+    alter table public.visits add column "recordingData" text;
+  end if;
+
+  if not exists (select 1 from information_schema.columns where table_name = 'visits' and column_name = 'recordings') then
+    alter table public.visits add column "recordings" jsonb default '[]'::jsonb;
+  end if;
+end $$;

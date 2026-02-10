@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Database, Shield, Cpu, CheckCircle, AlertCircle, Plus, Trash2, List, Edit2, X, RefreshCw, Mic } from 'lucide-react';
+import { Settings, Save, Database, Shield, Cpu, CheckCircle, AlertCircle, Plus, Trash2, List, Edit2, X, RefreshCw, Mic, Palette } from 'lucide-react';
 import { getStoredConfig, saveConfig, initSupabase } from '../services/supabaseService';
 import { getIflytekConfig, saveIflytekConfig } from '../services/iflytekService';
 import { CustomFieldDefinition, EntityType, FieldType } from '../types';
@@ -46,9 +46,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     
     // Load iFlytek Config
     const iflyConfig = getIflytekConfig();
-    setIflytekAppId(iflyConfig.appId);
-    setIflytekApiSecret(iflyConfig.apiSecret);
-    setIflytekApiKey(iflyConfig.apiKey);
+    // Use stored config or fallback to provided defaults for testing
+    setIflytekAppId(iflyConfig.appId || '8cc61805');
+    setIflytekApiSecret(iflyConfig.apiSecret || 'MjU5OTkzOWMyN2ZiNDhlMDNkNjdjMDli');
+    setIflytekApiKey(iflyConfig.apiKey || 'ffed16b33a183c42c3b989d5306f0d75');
     setIflytekDomain(iflyConfig.domain || 'iat');
   }, [isEnvConfigured]);
 
@@ -171,7 +172,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       </h2>
 
       <div className="space-y-6">
-        
+
         {/* Custom Field Configuration */}
         <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">

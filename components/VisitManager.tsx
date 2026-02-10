@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Visit, Client, Sentiment, CustomFieldDefinition, User, VisitRecording } from '../types';
 import { analyzeVisitNote, generateFollowUpEmail } from '../services/geminiService';
 import { IflytekStreamingSession, downsampleBuffer } from '../services/iflytekService';
-import { upsertVisit } from '../services/supabaseService';
+import { upsertVisit, deleteVisit } from '../services/supabaseService';
 import { 
   Calendar, 
   Mic, 
@@ -20,7 +20,13 @@ import {
   Trash2,
   Volume2,
   Wifi,
-  RefreshCw
+  RefreshCw,
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 interface VisitManagerProps {
@@ -35,6 +41,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
   const [viewMode, setViewMode] = useState<'LIST' | 'EDITOR'>('LIST');
   const [currentVisit, setCurrentVisit] = useState<Partial<Visit>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [expandedSection, setExpandedSection] = useState<'notes' | 'ai' | null>(null);
   
   // Client Search State
   const [clientSearchTerm, setClientSearchTerm] = useState('');
@@ -58,6 +65,9 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const iflytekSessionRef = useRef<IflytekStreamingSession | null>(null);
   
+  // Editor Ref
+  const editorRef = useRef<HTMLDivElement>(null);
+  
   // AI State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGeneratingEmail, setIsGeneratingEmail] = useState(false);
@@ -79,6 +89,29 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
       setClientSearchTerm('');
     }
   }, [currentVisit.id, currentVisit.clientName]);
+
+  // Sync content to editor div when switching visits or external updates (like voice)
+  useEffect(() => {
+    if (editorRef.current) {
+        // Prevent cursor jumping: Only update innerHTML if the editor is NOT focused, 
+        // OR if the content is empty (initial load), 
+        // OR if the content is significantly different (e.g. Voice update or new visit loaded)
+        // AND we are not currently typing (simple check: if innerHTML matches state, do nothing)
+        
+        const shouldUpdate = 
+            document.activeElement !== editorRef.current || 
+            (editorRef.current.innerHTML !== currentVisit.content && isRecording); // Allow update if recording
+
+        if (shouldUpdate && currentVisit.content !== undefined) {
+            // Check if content is actually different to avoid unnecessary resets
+            if (editorRef.current.innerHTML !== currentVisit.content) {
+                editorRef.current.innerHTML = currentVisit.content;
+            }
+        } else if (currentVisit.content === undefined) {
+             editorRef.current.innerHTML = '';
+        }
+    }
+  }, [currentVisit.id, currentVisit.content, isRecording]);
 
   useEffect(() => {
     return () => {
@@ -179,6 +212,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
           (text, isFinal) => {
              setCurrentVisit(prev => ({
                 ...prev,
+                // Append text. For Rich Text, we just append content.
+                // The browser will render this text inside the div.
                 content: (prev.content || '') + text
              }));
           },
@@ -289,12 +324,35 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
     }
   };
 
-  const handleDeleteRecording = (id: string) => {
-      if(!confirm("确定删除这条录音吗？")) return;
-      setCurrentVisit(prev => ({
-          ...prev,
-          recordings: prev.recordings?.filter(r => r.id !== id)
-      }));
+  const handleDeleteRecording = (index: number, e: React.MouseEvent) => {
+      // Use index instead of ID for more reliable deletion in local state
+      e.stopPropagation();
+      e.preventDefault();
+      
+      if(!window.confirm("确定要删除这条录音吗？此操作将永久移除该音频文件。")) return;
+      
+      setCurrentVisit(prev => {
+          const updatedRecordings = [...(prev.recordings || [])];
+          updatedRecordings.splice(index, 1);
+          return {
+              ...prev,
+              recordings: updatedRecordings
+          };
+      });
+  };
+
+  const handleDeleteVisit = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("确定要删除这条拜访记录吗？此操作无法撤销。")) return;
+    
+    setVisits(prev => prev.filter(v => v.id !== id));
+    await deleteVisit(id);
+    
+    // If we are currently editing the visit we just deleted, go back to list
+    if (viewMode === 'EDITOR' && currentVisit.id === id) {
+      setViewMode('LIST');
+      setCurrentVisit({});
+    }
   };
 
   const handleSave = async () => {
@@ -302,7 +360,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
       alert("请搜索并选择一个客户。");
       return;
     }
-    if (!currentVisit.content && (!currentVisit.recordings || currentVisit.recordings.length === 0)) {
+    // Get content from ref to ensure latest HTML is saved
+    const contentToSave = editorRef.current?.innerHTML || currentVisit.content || '';
+    
+    if (!contentToSave && (!currentVisit.recordings || currentVisit.recordings.length === 0)) {
       alert("请输入拜访笔记或录音。");
       return;
     }
@@ -314,7 +375,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
         clientId: currentVisit.clientId,
         clientName: currentVisit.clientName,
         date: currentVisit.date || new Date().toISOString(),
-        content: currentVisit.content || '',
+        content: contentToSave,
         type: currentVisit.type || '线下拜访',
         location: currentVisit.location,
         clientParticipants: currentVisit.clientParticipants,
@@ -322,6 +383,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
         ownerId: currentVisit.ownerId,
         ownerName: currentVisit.ownerName,
         recordings: currentVisit.recordings || [],
+        // Explicitly clear legacy recordingData to prevent "zombie" recordings from reappearing after migration
+        recordingData: null, 
         summary: currentVisit.summary,
         sentiment: currentVisit.sentiment,
         actionItems: currentVisit.actionItems,
@@ -352,10 +415,13 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
   };
 
   const handleAIAnalyze = async () => {
-    if (!currentVisit.content) return;
+    // Strip HTML for analysis to avoid token waste and confusion
+    const rawText = editorRef.current?.innerText || currentVisit.content || '';
+    if (!rawText) return;
+    
     setIsAnalyzing(true);
     try {
-      const result = await analyzeVisitNote(currentVisit.content, currentVisit.clientName || "Unknown");
+      const result = await analyzeVisitNote(rawText, currentVisit.clientName || "Unknown");
       setCurrentVisit(prev => ({ ...prev, ...result }));
     } catch (e) {
       alert("AI 分析失败。");
@@ -386,6 +452,14 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
+  const handleFormat = (command: string) => {
+    document.execCommand(command, false);
+    if (editorRef.current) {
+        editorRef.current.focus();
+        setCurrentVisit(prev => ({...prev, content: editorRef.current?.innerHTML || ''}));
+    }
+  };
+
   const filteredClients = clients.filter(c => 
     c.name.toLowerCase().includes(clientSearchTerm.toLowerCase()) ||
     c.industry.toLowerCase().includes(clientSearchTerm.toLowerCase())
@@ -407,65 +481,80 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
         </div>
 
         <div className="space-y-4 overflow-y-auto pb-20">
-          {visits.map(visit => (
-            <div 
-              key={visit.id}
-              onClick={() => {
-                const dateObj = new Date(visit.date);
-                dateObj.setMinutes(dateObj.getMinutes() - dateObj.getTimezoneOffset());
-                const formattedDate = dateObj.toISOString().slice(0, 16);
-                
-                // Migrate old singular recording to array if needed
-                let recs = visit.recordings || [];
-                if (recs.length === 0 && visit.recordingData) {
-                    recs = [{ id: 'legacy', url: visit.recordingData, timestamp: visit.date }];
-                }
+          {visits.map(visit => {
+            const canDelete = currentUser?.role === '管理员' || (visit.ownerId && currentUser?.id === visit.ownerId);
+            return (
+              <div 
+                key={visit.id}
+                onClick={() => {
+                  const dateObj = new Date(visit.date);
+                  dateObj.setMinutes(dateObj.getMinutes() - dateObj.getTimezoneOffset());
+                  const formattedDate = dateObj.toISOString().slice(0, 16);
+                  
+                  // Migrate old singular recording to array if needed
+                  let recs = visit.recordings || [];
+                  if (recs.length === 0 && visit.recordingData) {
+                      recs = [{ id: 'legacy', url: visit.recordingData, timestamp: visit.date }];
+                  }
 
-                setCurrentVisit({ ...visit, date: formattedDate, recordings: recs });
-                setViewMode('EDITOR');
-              }}
-              className="bg-white p-5 rounded-2xl border border-slate-100 hover:shadow-md cursor-pointer group transition-all"
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="flex items-center space-x-2 mb-1">
-                     <h3 className="font-bold text-slate-800">{visit.clientName}</h3>
-                     <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">{visit.type}</span>
-                     {(visit.recordings?.length ?? 0) > 0 && (
-                        <span className="flex items-center text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                           <Volume2 className="w-3 h-3 mr-1" /> {visit.recordings?.length}
-                        </span>
-                     )}
-                  </div>
-                  <div className="flex flex-col gap-1 mt-2">
-                    <div className="flex items-center gap-4 text-sm text-slate-500">
-                      <span className="flex items-center">
-                        <Clock className="w-3 h-3 mr-1" />
-                        {new Date(visit.date).toLocaleString()}
-                      </span>
+                  setCurrentVisit({ ...visit, date: formattedDate, recordings: recs });
+                  setViewMode('EDITOR');
+                }}
+                className="bg-white p-5 rounded-2xl border border-slate-100 hover:shadow-md cursor-pointer group transition-all relative"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center space-x-2 mb-1">
+                      <h3 className="font-bold text-slate-800">{visit.clientName}</h3>
+                      <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">{visit.type}</span>
+                      {(visit.recordings?.length ?? 0) > 0 && (
+                          <span className="flex items-center text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                            <Volume2 className="w-3 h-3 mr-1" /> {visit.recordings?.length}
+                          </span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <div className="flex flex-col gap-1 mt-2">
+                      <div className="flex items-center gap-4 text-sm text-slate-500">
                         <span className="flex items-center">
-                           <UserIcon className="w-3 h-3 mr-1" />
-                           {visit.ownerName || '未知'}
+                          <Clock className="w-3 h-3 mr-1" />
+                          {new Date(visit.date).toLocaleString()}
                         </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <span className="flex items-center">
+                            <UserIcon className="w-3 h-3 mr-1" />
+                            {visit.ownerName || '未知'}
+                          </span>
+                      </div>
                     </div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {visit.sentiment && (
+                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                        visit.sentiment === Sentiment.Positive ? 'bg-green-100 text-green-700' :
+                        visit.sentiment === Sentiment.Negative ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
+                      }`}>
+                        {visit.sentiment}
+                      </span>
+                    )}
+                    {canDelete && (
+                      <button
+                        onClick={(e) => handleDeleteVisit(visit.id, e)}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                        title="删除记录"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
-                {visit.sentiment && (
-                   <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                     visit.sentiment === Sentiment.Positive ? 'bg-green-100 text-green-700' :
-                     visit.sentiment === Sentiment.Negative ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
-                   }`}>
-                     {visit.sentiment}
-                   </span>
-                )}
+                <p className="mt-3 text-sm text-slate-600 line-clamp-2">
+                  {/* Strip HTML for list preview */}
+                  {(visit.summary || visit.content || '').replace(/<[^>]+>/g, '')}
+                </p>
               </div>
-              <p className="mt-3 text-sm text-slate-600 line-clamp-2">
-                {visit.summary || visit.content}
-              </p>
-            </div>
-          ))}
+            );
+          })}
           {visits.length === 0 && (
             <div className="text-center py-20 text-slate-400">
               <Calendar className="w-16 h-16 mx-auto mb-4 opacity-10" />
@@ -610,7 +699,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                  <label className="block text-xs font-semibold text-slate-500 uppercase">录音文件 ({currentVisit.recordings?.length})</label>
                  <div className="grid gap-2">
                     {currentVisit.recordings?.map((rec, index) => (
-                        <div key={rec.id} className="flex items-center justify-between p-2 bg-indigo-50 border border-indigo-100 rounded-lg">
+                        <div key={rec.id || index} className="flex items-center justify-between p-2 bg-indigo-50 border border-indigo-100 rounded-lg">
                            <div className="flex items-center overflow-hidden">
                               <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center mr-3 flex-shrink-0 text-indigo-600">
                                  <PlayCircle className="w-5 h-5" />
@@ -622,7 +711,12 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                            </div>
                            <div className="flex items-center">
                               <audio src={rec.url} controls className="h-6 w-32 md:w-48 mr-2" />
-                              <button onClick={() => handleDeleteRecording(rec.id)} className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-white">
+                              <button 
+                                type="button"
+                                onClick={(e) => handleDeleteRecording(index, e)} 
+                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all ml-3 flex-shrink-0 z-10 relative cursor-pointer"
+                                title="删除此录音"
+                              >
                                  <Trash2 className="w-4 h-4" />
                               </button>
                            </div>
@@ -632,8 +726,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
               </div>
           )}
 
-          {/* 3. Main Input & Real-time Transcription */}
-          <div className="flex-1 flex flex-col relative min-h-[300px]">
+          {/* 3. Main Input (Rich Text Editor) */}
+          <div className={`flex flex-col transition-all ${expandedSection === 'notes' ? 'fixed inset-0 z-50 bg-white p-6' : 'relative flex-1 min-h-[350px]'}`}>
              <div className="flex justify-between items-end mb-1">
                <label className="block text-xs font-semibold text-slate-500 uppercase">
                  拜访笔记 
@@ -647,43 +741,109 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                     </span>
                  )}
                </label>
+               <button 
+                  onClick={() => setExpandedSection(expandedSection === 'notes' ? null : 'notes')}
+                  className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-100"
+                  title={expandedSection === 'notes' ? "最小化" : "全屏编辑"}
+               >
+                  {expandedSection === 'notes' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-3 h-3"/>}
+               </button>
              </div>
              
-             <textarea 
-               className="flex-1 w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:outline-none resize-none text-slate-700 leading-relaxed text-base"
-               placeholder="开始输入，或点击右下角麦克风进行实时语音转写..."
-               value={currentVisit.content}
-               onChange={(e) => setCurrentVisit(prev => ({...prev, content: e.target.value}))}
-             />
+             {/* Rich Text Toolbar & Editor */}
+             <div className={`flex-1 flex flex-col border border-slate-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent transition-all ${expandedSection === 'notes' ? 'shadow-2xl' : ''}`}>
+                {/* Toolbar */}
+                <div className="flex items-center gap-1 p-2 border-b border-slate-100 bg-slate-50">
+                    <button 
+                      onClick={(e) => { e.preventDefault(); handleFormat('bold'); }}
+                      className="p-1.5 rounded hover:bg-slate-200 text-slate-600" title="Bold"
+                      type="button"
+                    >
+                      <Bold className="w-4 h-4"/>
+                    </button>
+                    <button 
+                      onClick={(e) => { e.preventDefault(); handleFormat('italic'); }}
+                      className="p-1.5 rounded hover:bg-slate-200 text-slate-600" title="Italic"
+                      type="button"
+                    >
+                      <Italic className="w-4 h-4"/>
+                    </button>
+                    <div className="w-px h-4 bg-slate-300 mx-1"></div>
+                    <button 
+                      onClick={(e) => { e.preventDefault(); handleFormat('insertUnorderedList'); }}
+                      className="p-1.5 rounded hover:bg-slate-200 text-slate-600" title="Bullet List"
+                      type="button"
+                    >
+                      <List className="w-4 h-4"/>
+                    </button>
+                    <button 
+                      onClick={(e) => { e.preventDefault(); handleFormat('insertOrderedList'); }}
+                      className="p-1.5 rounded hover:bg-slate-200 text-slate-600" title="Ordered List"
+                      type="button"
+                    >
+                      <ListOrdered className="w-4 h-4"/>
+                    </button>
+                </div>
+                
+                {/* Editable Area */}
+                <div 
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  className="flex-1 p-4 bg-white outline-none overflow-y-auto text-slate-700 leading-relaxed text-base [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none"
+                  onInput={(e) => {
+                     // Sync state on manual input
+                     setCurrentVisit(prev => ({...prev, content: e.currentTarget.innerHTML}));
+                  }}
+                  onBlur={() => {
+                     // Ensure state is synced on blur
+                     if (editorRef.current) {
+                        setCurrentVisit(prev => ({...prev, content: editorRef.current?.innerHTML || ''}));
+                     }
+                  }}
+                  data-placeholder="开始输入，或点击右下角麦克风进行实时语音转写..."
+                />
+             </div>
              
-             {/* Floating Record Button */}
-             <button 
-               onClick={handleVoiceToggle}
-               className={`absolute bottom-4 right-4 p-4 rounded-full shadow-lg transition-all transform hover:scale-105 ${
-                 isRecording 
-                   ? 'bg-red-500 text-white shadow-red-200 ring-4 ring-red-100' 
-                   : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
-               }`}
-               title={isRecording ? "停止录音" : "开始录音转写"}
-             >
-               {isRecording ? <Square className="w-6 h-6 fill-current" /> : <Mic className="w-6 h-6" />}
-             </button>
+             {/* Floating Record Button - Hide in full screen mode to avoid clutter or overlap issues */}
+             {!expandedSection && (
+               <button 
+                 onClick={handleVoiceToggle}
+                 className={`absolute bottom-4 right-4 p-4 rounded-full shadow-lg transition-all transform hover:scale-105 ${
+                   isRecording 
+                     ? 'bg-red-500 text-white shadow-red-200 ring-4 ring-red-100' 
+                     : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
+                 }`}
+                 title={isRecording ? "停止录音" : "开始录音转写"}
+               >
+                 {isRecording ? <Square className="w-6 h-6 fill-current" /> : <Mic className="w-6 h-6" />}
+               </button>
+             )}
           </div>
         </div>
 
         {/* RIGHT COLUMN: AI Insights */}
-        <div className="flex flex-col h-full bg-slate-50 rounded-2xl border border-slate-200 p-6 overflow-y-auto">
+        <div className={`flex flex-col bg-slate-50 rounded-2xl border border-slate-200 p-6 overflow-y-auto transition-all ${expandedSection === 'ai' ? 'fixed inset-0 z-50 h-full' : 'h-full'}`}>
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-bold text-slate-800 flex items-center">
               <Sparkles className="w-5 h-5 mr-2 text-indigo-600" /> AI 智能洞察
             </h3>
-            <button 
-              onClick={handleAIAnalyze}
-              disabled={isAnalyzing || !currentVisit.content}
-              className="text-xs bg-white border border-indigo-100 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-50 disabled:opacity-50"
-            >
-              {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin"/> : '生成分析'}
-            </button>
+            <div className="flex space-x-2">
+               <button 
+                 onClick={handleAIAnalyze}
+                 disabled={isAnalyzing || !currentVisit.content}
+                 className="text-xs bg-white border border-indigo-100 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-50 disabled:opacity-50"
+               >
+                 {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin"/> : '生成分析'}
+               </button>
+               <button 
+                  onClick={() => setExpandedSection(expandedSection === 'ai' ? null : 'ai')}
+                  className="text-slate-400 hover:text-indigo-600 p-1.5 rounded hover:bg-slate-200"
+                  title={expandedSection === 'ai' ? "最小化" : "全屏查看"}
+               >
+                  {expandedSection === 'ai' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-4 h-4"/>}
+               </button>
+            </div>
           </div>
 
           {!currentVisit.summary ? (

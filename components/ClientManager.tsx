@@ -5,7 +5,9 @@ import {
   X, Loader2, BarChart2, Users, Save, Edit2, Trash2, PieChart as PieIcon,
   Contact as ContactIcon,
   ChevronRight,
-  User as UserIcon
+  User as UserIcon,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -55,6 +57,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [activeTab, setActiveTab] = useState<'BASIC' | 'EQUITY' | 'CONTACTS'>('BASIC');
+  const [expandedField, setExpandedField] = useState<'financial' | 'supply' | null>(null);
   
   // States within Modal
   const [isProfileLoading, setIsProfileLoading] = useState(false);
@@ -276,61 +279,66 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                 </td>
               </tr>
             ) : (
-              filteredClients.map(client => (
-                <tr 
-                  key={client.id} 
-                  onClick={() => { setSelectedClient(client); setActiveTab('BASIC'); }}
-                  className="hover:bg-slate-50 transition-colors cursor-pointer group"
-                >
-                  <td className="px-6 py-4">
-                    <div className="flex items-center">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs mr-3 flex-shrink-0 ${
-                        client.status === ClientStatus.Active ? 'bg-emerald-500' :
-                        client.status === ClientStatus.Lead ? 'bg-blue-500' : 'bg-slate-400'
-                      }`}>
-                        {client.name.charAt(0)}
+              filteredClients.map(client => {
+                const canDelete = currentUser?.role === '管理员' || (client.ownerId && currentUser?.id === client.ownerId);
+                return (
+                  <tr 
+                    key={client.id} 
+                    onClick={() => { setSelectedClient(client); setActiveTab('BASIC'); }}
+                    className="hover:bg-slate-50 transition-colors cursor-pointer group"
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs mr-3 flex-shrink-0 ${
+                          client.status === ClientStatus.Active ? 'bg-emerald-500' :
+                          client.status === ClientStatus.Lead ? 'bg-blue-500' : 'bg-slate-400'
+                        }`}>
+                          {client.name.charAt(0)}
+                        </div>
+                        <span className="font-medium text-slate-800">{client.name}</span>
                       </div>
-                      <span className="font-medium text-slate-800">{client.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-600">{client.industry}</td>
-                  <td className="px-6 py-4 text-slate-600 flex items-center">
-                    {client.region ? (
-                       <><MapPin className="w-3 h-3 mr-1 text-slate-400" /> {client.region}</>
-                    ) : '-'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      client.status === ClientStatus.Active ? 'bg-emerald-50 text-emerald-600' :
-                      client.status === ClientStatus.Lead ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {client.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-slate-600">
-                    <div className="flex items-center">
-                      <UserIcon className="w-3 h-3 mr-1 text-slate-400" />
-                      {client.ownerName || '未分配'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
-                    <button 
-                      onClick={() => { setSelectedClient(client); setActiveTab('BASIC'); }}
-                      className="text-indigo-600 hover:text-indigo-800 mx-2 p-1 hover:bg-indigo-50 rounded"
-                      title="编辑"
-                    >
-                      <Edit2 className="w-4 h-4"/>
-                    </button>
-                    <button 
-                      onClick={(e) => handleDeleteClient(client.id, e)} 
-                      className="text-red-500 hover:text-red-700 mx-2 p-1 hover:bg-red-50 rounded"
-                      title="删除"
-                    >
-                      <Trash2 className="w-4 h-4"/>
-                    </button>
-                  </td>
-                </tr>
-              ))
+                    </td>
+                    <td className="px-6 py-4 text-slate-600">{client.industry}</td>
+                    <td className="px-6 py-4 text-slate-600 flex items-center">
+                      {client.region ? (
+                         <><MapPin className="w-3 h-3 mr-1 text-slate-400" /> {client.region}</>
+                      ) : '-'}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        client.status === ClientStatus.Active ? 'bg-emerald-50 text-emerald-600' :
+                        client.status === ClientStatus.Lead ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {client.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      <div className="flex items-center">
+                        <UserIcon className="w-3 h-3 mr-1 text-slate-400" />
+                        {client.ownerName || '未分配'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
+                      <button 
+                        onClick={() => { setSelectedClient(client); setActiveTab('BASIC'); }}
+                        className="text-indigo-600 hover:text-indigo-800 mx-2 p-1 hover:bg-indigo-50 rounded"
+                        title="编辑"
+                      >
+                        <Edit2 className="w-4 h-4"/>
+                      </button>
+                      {canDelete && (
+                        <button 
+                          onClick={(e) => handleDeleteClient(client.id, e)} 
+                          className="text-red-500 hover:text-red-700 mx-2 p-1 hover:bg-red-50 rounded"
+                          title="删除"
+                        >
+                          <Trash2 className="w-4 h-4"/>
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -503,7 +511,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                        </div>
                     )}
                     
-                    {/* Financial & Supply Chain (Text only) */}
+                    {/* Financial & Supply Chain (Text only) with Expandable View */}
                     <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-4 shadow-sm">
                       <div className="flex justify-between items-center">
                          <h3 className="text-sm font-bold text-slate-800 flex items-center mb-2">
@@ -518,22 +526,45 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                          </button>
                       </div>
                       <div className="space-y-3">
-                         <div>
-                            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">财务分析</label>
+                         {/* Financial Analysis */}
+                         <div className={`${expandedField === 'financial' ? 'fixed inset-0 z-50 bg-white p-6 flex flex-col' : 'relative'}`}>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="block text-xs font-semibold text-slate-500 uppercase">财务分析</label>
+                                <button 
+                                  onClick={() => setExpandedField(expandedField === 'financial' ? null : 'financial')}
+                                  className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-100"
+                                  title={expandedField === 'financial' ? "最小化" : "全屏编辑"}
+                                >
+                                   {expandedField === 'financial' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-3 h-3"/>}
+                                </button>
+                            </div>
                             <textarea
-                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm h-20 resize-none"
+                              className={`w-full p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 ${expandedField === 'financial' ? 'flex-1 text-base' : 'h-20'}`}
                               value={selectedClient.financialAnalysis || ''}
-                              readOnly
-                              placeholder="点击“AI 更新画像”自动生成..."
+                              readOnly={false} // Allow editing
+                              onChange={(e) => setSelectedClient(prev => prev ? {...prev, financialAnalysis: e.target.value} : null)}
+                              placeholder="点击“AI 更新画像”自动生成，或手动输入..."
                             />
                          </div>
-                         <div>
-                            <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">供应链信息</label>
+
+                         {/* Supply Chain Info */}
+                         <div className={`${expandedField === 'supply' ? 'fixed inset-0 z-50 bg-white p-6 flex flex-col' : 'relative'}`}>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="block text-xs font-semibold text-slate-500 uppercase">供应链信息</label>
+                                <button 
+                                  onClick={() => setExpandedField(expandedField === 'supply' ? null : 'supply')}
+                                  className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-100"
+                                  title={expandedField === 'supply' ? "最小化" : "全屏编辑"}
+                                >
+                                   {expandedField === 'supply' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-3 h-3"/>}
+                                </button>
+                            </div>
                             <textarea
-                              className="w-full p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm h-20 resize-none"
+                              className={`w-full p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 ${expandedField === 'supply' ? 'flex-1 text-base' : 'h-20'}`}
                               value={selectedClient.supplyChainInfo || ''}
-                              readOnly
-                              placeholder="点击“AI 更新画像”自动生成..."
+                              readOnly={false}
+                              onChange={(e) => setSelectedClient(prev => prev ? {...prev, supplyChainInfo: e.target.value} : null)}
+                              placeholder="点击“AI 更新画像”自动生成，或手动输入..."
                             />
                          </div>
                       </div>

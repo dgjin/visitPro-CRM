@@ -29,6 +29,7 @@ create table if not exists public.users (
     "id" text primary key,
     "name" text not null,
     "email" text,
+    "phone" text, -- 电话
     "avatarUrl" text,
     "roleId" text references public.roles("id"),
     "departmentId" text references public.departments("id"),
@@ -79,6 +80,7 @@ create table if not exists public.visits (
     
     -- 录音数据 (新增 - Base64)
     "recordingData" text,
+    "recordings" jsonb default '[]'::jsonb, -- 支持多录音文件
 
     -- 扩展字段
     "customFields" jsonb default '{}'::jsonb,
@@ -116,7 +118,6 @@ create index if not exists idx_depts_parent on public.departments ("parentId");
 -- 9. 迁移脚本 (Migration Scripts)
 -- ==========================================
 -- 如果您的表已经存在，请运行以下命令来添加缺失的字段。
--- 这通常发生在您先创建了数据库，后来又更新了代码的情况下。
 
 -- 9.1 更新 Clients 表
 do $$
@@ -160,7 +161,19 @@ begin
   if not exists (select 1 from information_schema.columns where table_name = 'visits' and column_name = 'recordingData') then
     alter table public.visits add column "recordingData" text;
   end if;
+
+  if not exists (select 1 from information_schema.columns where table_name = 'visits' and column_name = 'recordings') then
+    alter table public.visits add column "recordings" jsonb default '[]'::jsonb;
+  end if;
 end $$;
 
--- 9.3 刷新 Schema Cache (PostgREST)
+-- 9.3 更新 Users 表 (Added Phone)
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_name = 'users' and column_name = 'phone') then
+    alter table public.users add column "phone" text;
+  end if;
+end $$;
+
+-- 9.4 刷新 Schema Cache (PostgREST)
 notify pgrst, 'reload config';

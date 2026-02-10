@@ -71,7 +71,7 @@ export interface Visit {
 
   // Audio Data
   recordings?: VisitRecording[]; // New field for multiple recordings
-  recordingData?: string; // Deprecated: Kept for backward compatibility
+  recordingData?: string | null; // Deprecated: Kept for backward compatibility
 
   // AI Generated fields
   summary?: string;
@@ -106,6 +106,7 @@ export interface User {
   id: string;
   name: string;
   email?: string;
+  phone?: string; // Add phone field
   roleId?: string; // Relation to Role
   departmentId?: string; // Relation to Department
   avatarUrl: string;

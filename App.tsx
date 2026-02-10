@@ -29,8 +29,9 @@ const MOCK_USER: User = {
   id: 'u1',
   name: '陈亚力',
   email: 'chen@visitpro.com',
-  role: '销售代表',
-  roleId: 'r3',
+  phone: '138-0013-8000',
+  role: '管理员',
+  roleId: 'r1',
   departmentId: 'd3',
   avatarUrl: 'https://picsum.photos/200/200',
   status: 'active'
@@ -38,7 +39,8 @@ const MOCK_USER: User = {
 
 const MOCK_USERS_LIST: User[] = [
   MOCK_USER,
-  { id: 'u2', name: '张经理', email: 'zhang@visitpro.com', role: '销售经理', roleId: 'r2', departmentId: 'd2', avatarUrl: 'https://ui-avatars.com/api/?name=Zhang', status: 'active' }
+  { id: 'u2', name: '张经理', email: 'zhang@visitpro.com', phone: '139-1234-5678', role: '销售经理', roleId: 'r2', departmentId: 'd2', avatarUrl: 'https://ui-avatars.com/api/?name=Zhang', status: 'active' },
+  { id: 'u3', name: '王技术', email: 'tech@visitpro.com', phone: '137-8765-4321', role: '技术支持', roleId: 'r3', departmentId: 'd5', avatarUrl: 'https://ui-avatars.com/api/?name=Tech', status: 'active' }
 ];
 
 const MOCK_CLIENTS: Client[] = [
@@ -125,8 +127,94 @@ const MOCK_VISITS: Visit[] = [
   }
 ];
 
+// Color Palettes
+const THEME_PALETTES: Record<string, Record<number, string>> = {
+  indigo: {
+    50: '#eef2ff',
+    100: '#e0e7ff',
+    200: '#c7d2fe',
+    300: '#a5b4fc',
+    400: '#818cf8',
+    500: '#6366f1',
+    600: '#4f46e5',
+    700: '#4338ca',
+    800: '#3730a3',
+    900: '#312e81',
+    950: '#1e1b4b',
+  },
+  blue: {
+    50: '#eff6ff',
+    100: '#dbeafe',
+    200: '#bfdbfe',
+    300: '#93c5fd',
+    400: '#60a5fa',
+    500: '#3b82f6',
+    600: '#2563eb',
+    700: '#1d4ed8',
+    800: '#1e40af',
+    900: '#1e3a8a',
+    950: '#172554',
+  },
+  emerald: {
+    50: '#ecfdf5',
+    100: '#d1fae5',
+    200: '#a7f3d0',
+    300: '#6ee7b7',
+    400: '#34d399',
+    500: '#10b981',
+    600: '#059669',
+    700: '#047857',
+    800: '#065f46',
+    900: '#064e3b',
+    950: '#022c22',
+  },
+  rose: {
+    50: '#fff1f2',
+    100: '#ffe4e6',
+    200: '#fecdd3',
+    300: '#fda4af',
+    400: '#fb7185',
+    500: '#f43f5e',
+    600: '#e11d48',
+    700: '#be123c',
+    800: '#9f1239',
+    900: '#881337',
+    950: '#4c0519',
+  },
+  amber: {
+    50: '#fffbeb',
+    100: '#fef3c7',
+    200: '#fde68a',
+    300: '#fcd34d',
+    400: '#fbbf24',
+    500: '#f59e0b',
+    600: '#d97706',
+    700: '#b45309',
+    800: '#92400e',
+    900: '#78350f',
+    950: '#451a03',
+  },
+  slate: {
+    50: '#f8fafc',
+    100: '#f1f5f9',
+    200: '#e2e8f0',
+    300: '#cbd5e1',
+    400: '#94a3b8',
+    500: '#64748b',
+    600: '#475569',
+    700: '#334155',
+    800: '#1e293b',
+    900: '#0f172a',
+    950: '#020617',
+  }
+};
+
 const App: React.FC = () => {
   const [currentView, setView] = useState<ViewState>('DASHBOARD');
+  
+  // App State
+  const [currentUser, setCurrentUser] = useState<User>(MOCK_USER);
+  const [theme, setTheme] = useState(() => localStorage.getItem('visitpro_theme') || 'indigo');
   
   // Data States
   const [clients, setClients] = useState<Client[]>(MOCK_CLIENTS);
@@ -150,6 +238,10 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('visitpro_custom_fields', JSON.stringify(fieldDefinitions));
   }, [fieldDefinitions]);
+
+  useEffect(() => {
+    localStorage.setItem('visitpro_theme', theme);
+  }, [theme]);
 
   // Unified Data Loading Function
   const refreshData = useCallback(async () => {
@@ -181,61 +273,112 @@ const App: React.FC = () => {
     refreshData();
   }, [refreshData]);
 
+  // Role Based Access Control Logic
+  useEffect(() => {
+    const getRoleName = (u: User) => {
+      if (u.roleId && roles.length > 0) {
+        const foundRole = roles.find(r => r.id === u.roleId);
+        if (foundRole) return foundRole.name;
+      }
+      return u.role || '用户';
+    };
+
+    const currentRoleName = getRoleName(currentUser);
+    const isAdmin = currentRoleName === '管理员';
+    const restrictedViews: ViewState[] = ['USERS', 'DEPARTMENTS', 'ROLES', 'ADMIN'];
+
+    // If user is not admin but tries to access restricted view, redirect to dashboard
+    if (!isAdmin && restrictedViews.includes(currentView)) {
+      setView('DASHBOARD');
+    }
+  }, [currentUser, currentView, roles]);
+
+  // Construct Dynamic Theme Styles
+  const themePalette = THEME_PALETTES[theme] || THEME_PALETTES.indigo;
+  const themeStyles = `
+    :root {
+      --color-primary-50: ${themePalette[50]};
+      --color-primary-100: ${themePalette[100]};
+      --color-primary-200: ${themePalette[200]};
+      --color-primary-300: ${themePalette[300]};
+      --color-primary-400: ${themePalette[400]};
+      --color-primary-500: ${themePalette[500]};
+      --color-primary-600: ${themePalette[600]};
+      --color-primary-700: ${themePalette[700]};
+      --color-primary-800: ${themePalette[800]};
+      --color-primary-900: ${themePalette[900]};
+      --color-primary-950: ${themePalette[950]};
+    }
+  `;
+
   return (
-    <Layout currentView={currentView} setView={setView} user={MOCK_USER}>
-      {currentView === 'DASHBOARD' && (
-        <Dashboard 
-          visits={visits} 
-          clients={clients} 
-          onNavigate={(view) => setView(view)} 
-        />
-      )}
-      {currentView === 'CLIENTS' && (
-        <ClientManager 
-          clients={clients} 
-          setClients={setClients} 
-          fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'CLIENT')}
-          currentUser={MOCK_USER}
-        />
-      )}
-      {currentView === 'VISITS' && (
-        <VisitManager 
-          visits={visits} 
-          setVisits={setVisits} 
-          clients={clients} 
-          fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'VISIT')}
-          currentUser={MOCK_USER}
-        />
-      )}
-      {currentView === 'USERS' && (
-        <UserManager 
-          users={users} 
-          setUsers={setUsers}
-          roles={roles}
-          departments={departments}
-        />
-      )}
-      {currentView === 'DEPARTMENTS' && (
-        <DepartmentManager 
-          departments={departments} 
-          setDepartments={setDepartments} 
-          users={users}
-        />
-      )}
-      {currentView === 'ROLES' && (
-        <RoleManager 
-          roles={roles} 
-          setRoles={setRoles} 
-        />
-      )}
-      {currentView === 'ADMIN' && (
-        <AdminPanel 
-          fieldDefinitions={fieldDefinitions}
-          setFieldDefinitions={setFieldDefinitions}
-          onConfigSave={refreshData}
-        />
-      )}
-    </Layout>
+    <>
+      <style>{themeStyles}</style>
+      <Layout 
+        currentView={currentView} 
+        setView={setView} 
+        user={currentUser}
+        allUsers={users}
+        onSwitchUser={setCurrentUser}
+        currentTheme={theme}
+        setTheme={setTheme}
+        roles={roles}
+      >
+        {currentView === 'DASHBOARD' && (
+          <Dashboard 
+            visits={visits} 
+            clients={clients} 
+            onNavigate={(view) => setView(view)} 
+          />
+        )}
+        {currentView === 'CLIENTS' && (
+          <ClientManager 
+            clients={clients} 
+            setClients={setClients} 
+            fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'CLIENT')}
+            currentUser={currentUser}
+          />
+        )}
+        {currentView === 'VISITS' && (
+          <VisitManager 
+            visits={visits} 
+            setVisits={setVisits} 
+            clients={clients} 
+            fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'VISIT')}
+            currentUser={currentUser}
+          />
+        )}
+        {/* Only render these components if checks pass, though Layout/Effect handles visibility/redirect */}
+        {currentView === 'USERS' && (
+          <UserManager 
+            users={users} 
+            setUsers={setUsers}
+            roles={roles}
+            departments={departments}
+          />
+        )}
+        {currentView === 'DEPARTMENTS' && (
+          <DepartmentManager 
+            departments={departments} 
+            setDepartments={setDepartments} 
+            users={users}
+          />
+        )}
+        {currentView === 'ROLES' && (
+          <RoleManager 
+            roles={roles} 
+            setRoles={setRoles} 
+          />
+        )}
+        {currentView === 'ADMIN' && (
+          <AdminPanel 
+            fieldDefinitions={fieldDefinitions}
+            setFieldDefinitions={setFieldDefinitions}
+            onConfigSave={refreshData}
+          />
+        )}
+      </Layout>
+    </>
   );
 };
 

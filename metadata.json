@@ -1,5 +1,5 @@
 {
-  "name": "VisitPro CRM",
+  "name": "VisitPro For CRM",
   "description": "VisitPro CRM是一款针对外勤销售和客户经理设计的智能化 CRM 辅助工具。通过集成 Google Gemini 3 与 DeepSeek AI，系统能够实现从语音录入到专业报告生成的自动化全流程，解决拜访记录碎片化、整理负担重、跟进不及时的痛点。",
   "requestFramePermissions": [
     "microphone"
