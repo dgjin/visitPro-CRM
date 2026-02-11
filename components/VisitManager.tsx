@@ -29,7 +29,9 @@ import {
   Minimize2,
   Phone,
   Video,
-  MapPin
+  MapPin,
+  Filter,
+  XCircle
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
@@ -49,7 +51,13 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
   const [expandedSection, setExpandedSection] = useState<'notes' | 'ai' | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   
-  // Client Search State
+  // List View Filters
+  const [listSearchTerm, setListSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('ALL');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  
+  // Client Search State (Editor)
   const [clientSearchTerm, setClientSearchTerm] = useState('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
@@ -328,10 +336,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
     }
   };
 
-  const handleDeleteRecording = (index: number, e: React.MouseEvent) => {
-      e.stopPropagation();
-      e.preventDefault();
-      
+  const handleDeleteRecording = (index: number) => {
+      // Confirm deletion
       if(!window.confirm("确定要删除这条录音吗？此操作将永久移除该音频文件。")) return;
       
       setCurrentVisit(prev => {
@@ -504,8 +510,28 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
     }
   };
 
-  const totalPages = Math.ceil(visits.length / ITEMS_PER_PAGE);
-  const paginatedVisits = visits.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+  const filteredVisits = visits.filter(v => {
+      const searchLower = listSearchTerm.toLowerCase();
+      const matchSearch = v.clientName.toLowerCase().includes(searchLower) || 
+                          (v.content && v.content.toLowerCase().includes(searchLower));
+      
+      const matchType = filterType === 'ALL' || v.type === filterType;
+      
+      let matchDate = true;
+      if (startDate) {
+          matchDate = matchDate && new Date(v.date) >= new Date(startDate);
+      }
+      if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          matchDate = matchDate && new Date(v.date) <= end;
+      }
+      
+      return matchSearch && matchType && matchDate;
+  });
+
+  const totalPages = Math.ceil(filteredVisits.length / ITEMS_PER_PAGE);
+  const paginatedVisits = filteredVisits.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   const filteredClients = clients.filter(c => 
     c.name.toLowerCase().includes(clientSearchTerm.toLowerCase()) ||
@@ -536,6 +562,70 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
             <Calendar className="w-5 h-5 mr-2" />
             新建拜访
           </button>
+        </div>
+
+        <div className="bg-white p-4 rounded-xl border border-slate-100 mb-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+             {/* Search */}
+             <div className="relative">
+                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                 <input 
+                     type="text"
+                     placeholder="搜索客户或内容..."
+                     className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                     value={listSearchTerm}
+                     onChange={e => { setListSearchTerm(e.target.value); setCurrentPage(1); }}
+                 />
+             </div>
+             
+             {/* Type Filter */}
+             <div className="relative">
+                 <select
+                     className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white"
+                     value={filterType}
+                     onChange={e => { setFilterType(e.target.value); setCurrentPage(1); }}
+                 >
+                     <option value="ALL">所有类型</option>
+                     <option value="线下拜访">线下拜访</option>
+                     <option value="线上会议">线上会议</option>
+                     <option value="电话沟通">电话沟通</option>
+                     <option value="客户到访">客户到访</option>
+                 </select>
+                 <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
+             </div>
+
+             {/* Date Range */}
+             <div className="md:col-span-2 flex items-center space-x-2">
+                 <input 
+                     type="date"
+                     className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                     value={startDate}
+                     onChange={e => { setStartDate(e.target.value); setCurrentPage(1); }}
+                     title="开始日期"
+                 />
+                 <span className="text-slate-400">-</span>
+                 <input 
+                     type="date"
+                     className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                     value={endDate}
+                     onChange={e => { setEndDate(e.target.value); setCurrentPage(1); }}
+                     title="结束日期"
+                 />
+                 {(startDate || endDate || listSearchTerm || filterType !== 'ALL') && (
+                     <button 
+                        onClick={() => {
+                            setStartDate('');
+                            setEndDate('');
+                            setListSearchTerm('');
+                            setFilterType('ALL');
+                            setCurrentPage(1);
+                        }}
+                        className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+                        title="重置筛选"
+                     >
+                        <XCircle className="w-5 h-5" />
+                     </button>
+                 )}
+             </div>
         </div>
 
         <div className="flex-1 overflow-y-auto bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col">
@@ -623,19 +713,19 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                 </div>
               );
             })}
-            {visits.length === 0 && (
+            {filteredVisits.length === 0 && (
               <div className="text-center py-20 text-slate-400">
                 <Calendar className="w-16 h-16 mx-auto mb-4 opacity-10" />
-                <p>暂无拜访记录</p>
+                <p>暂无符合条件的拜访记录</p>
               </div>
             )}
           </div>
 
           {/* Pagination */}
-          {visits.length > 0 && (
+          {filteredVisits.length > 0 && (
             <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
                <span className="text-xs text-slate-500">
-                  显示 {Math.min(visits.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)} - {Math.min(visits.length, currentPage * ITEMS_PER_PAGE)} 共 {visits.length} 条
+                  显示 {Math.min(filteredVisits.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)} - {Math.min(filteredVisits.length, currentPage * ITEMS_PER_PAGE)} 共 {filteredVisits.length} 条
                </span>
                <div className="flex space-x-2">
                   <button 
@@ -877,7 +967,11 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                               <audio src={rec.url} controls className="h-6 w-32 md:w-48 mr-2" />
                               <button 
                                 type="button"
-                                onClick={(e) => handleDeleteRecording(index, e)} 
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleDeleteRecording(index);
+                                }} 
                                 className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all ml-3 flex-shrink-0 z-10 relative cursor-pointer"
                                 title="删除此录音"
                               >

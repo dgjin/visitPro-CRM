@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { User, Role, Department } from '../types';
 import { Plus, Edit2, Trash2, UserCog, X, Search } from 'lucide-react';
 import { upsertUser, deleteUser } from '../services/supabaseService';
@@ -18,6 +18,42 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
     u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     u.role?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Generate tree-structured options for department select
+  const departmentOptions = useMemo(() => {
+    const options: { id: string; name: string; level: number }[] = [];
+    const map = new Map<string | null, Department[]>();
+
+    // Group by parentId
+    departments.forEach(d => {
+        const pid = d.parentId || null;
+        if (!map.has(pid)) map.set(pid, []);
+        map.get(pid)?.push(d);
+    });
+
+    const traverse = (parentId: string | null, level: number) => {
+        const children = map.get(parentId) || [];
+        children.forEach(child => {
+            options.push({ id: child.id, name: child.name, level });
+            traverse(child.id, level + 1);
+        });
+    };
+
+    traverse(null, 0);
+    return options;
+  }, [departments]);
+
+  // Helper to get full department path (e.g. "Root - Child - Leaf")
+  const getDepartmentPath = (deptId: string | undefined) => {
+    if (!deptId) return '-';
+    const path: string[] = [];
+    let current = departments.find(d => d.id === deptId);
+    while (current) {
+        path.unshift(current.name);
+        current = departments.find(d => d.id === current?.parentId);
+    }
+    return path.join(' - ');
+  };
 
   const handleSave = async () => {
     if (!editingUser?.name) return;
@@ -68,7 +104,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                <input 
                   type="text" 
                   placeholder="搜索用户..." 
-                  className="pl-9 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="pl-9 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-900 bg-white"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                />
@@ -89,7 +125,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
              <thead className="bg-slate-50 border-b border-slate-100 sticky top-0">
                 <tr>
                    <th className="px-6 py-4 font-semibold text-slate-600">用户</th>
-                   <th className="px-6 py-4 font-semibold text-slate-600">部门</th>
+                   <th className="px-6 py-4 font-semibold text-slate-600">机构-部门</th>
                    <th className="px-6 py-4 font-semibold text-slate-600">角色</th>
                    <th className="px-6 py-4 font-semibold text-slate-600">状态</th>
                    <th className="px-6 py-4 font-semibold text-slate-600 text-right">操作</th>
@@ -97,7 +133,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
              </thead>
              <tbody className="divide-y divide-slate-50">
                 {filteredUsers.map(user => {
-                   const deptName = departments.find(d => d.id === user.departmentId)?.name || '-';
+                   const deptPath = getDepartmentPath(user.departmentId);
                    const roleName = roles.find(r => r.id === user.roleId)?.name || user.role || '-';
                    return (
                       <tr key={user.id} className="hover:bg-slate-50 transition-colors">
@@ -105,13 +141,13 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                             <div className="flex items-center">
                                <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-full mr-3" />
                                <div>
-                                  <div className="font-medium text-slate-800">{user.name}</div>
+                                  <div className="font-medium text-slate-900">{user.name}</div>
                                   <div className="text-xs text-slate-500">{user.email}</div>
                                   {user.phone && <div className="text-xs text-slate-400">{user.phone}</div>}
                                </div>
                             </div>
                          </td>
-                         <td className="px-6 py-4 text-slate-600">{deptName}</td>
+                         <td className="px-6 py-4 text-slate-700 font-medium">{deptPath}</td>
                          <td className="px-6 py-4">
                             <span className="inline-block px-2 py-1 bg-indigo-50 text-indigo-600 rounded text-xs border border-indigo-100">
                                {roleName}
@@ -149,7 +185,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                   <div className="col-span-2">
                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">姓名</label>
                      <input 
-                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
                         value={editingUser.name || ''}
                         onChange={e => setEditingUser(prev => ({ ...prev, name: e.target.value }))}
                      />
@@ -157,7 +193,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                   <div>
                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">邮箱</label>
                      <input 
-                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
                         value={editingUser.email || ''}
                         onChange={e => setEditingUser(prev => ({ ...prev, email: e.target.value }))}
                      />
@@ -165,7 +201,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                   <div>
                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">电话</label>
                      <input 
-                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
                         value={editingUser.phone || ''}
                         onChange={e => setEditingUser(prev => ({ ...prev, phone: e.target.value }))}
                         placeholder="138-xxxx-xxxx"
@@ -174,18 +210,22 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                   <div>
                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">部门</label>
                      <select 
-                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-900"
                         value={editingUser.departmentId || ''}
                         onChange={e => setEditingUser(prev => ({ ...prev, departmentId: e.target.value }))}
                      >
                         <option value="">选择部门</option>
-                        {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                        {departmentOptions.map(d => (
+                            <option key={d.id} value={d.id}>
+                                {'\u00A0\u00A0\u00A0'.repeat(d.level) + (d.level > 0 ? '└ ' : '') + d.name}
+                            </option>
+                        ))}
                      </select>
                   </div>
                   <div>
                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">角色</label>
                      <select 
-                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-900"
                         value={editingUser.roleId || ''}
                         onChange={e => setEditingUser(prev => ({ ...prev, roleId: e.target.value }))}
                      >
@@ -196,7 +236,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                   <div className="col-span-2">
                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">状态</label>
                      <select 
-                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-slate-900"
                         value={editingUser.status || 'active'}
                         onChange={e => setEditingUser(prev => ({ ...prev, status: e.target.value as any }))}
                      >
