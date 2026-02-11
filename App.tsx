@@ -10,7 +10,7 @@ import { RoleManager } from './components/RoleManager';
 import { ViewState, Client, Visit, User, ClientStatus, Sentiment, CustomFieldDefinition, Department, Role } from './types';
 import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles } from './services/supabaseService';
 
-// Mock Data Initialization (Fallback)
+// Mock Data Definitions (Only used as fallback when NO DB connection exists)
 const MOCK_ROLES: Role[] = [
   { id: 'r1', name: '管理员', description: '系统完全访问权限' },
   { id: 'r2', name: '销售经理', description: '管理团队和查看所有报表' },
@@ -213,15 +213,17 @@ const App: React.FC = () => {
   const [currentView, setView] = useState<ViewState>('DASHBOARD');
   
   // App State
+  // Start with MOCK_USER as a safe default for currentUser to avoid null checks in UI initially,
+  // but it will be overwritten if DB users are found.
   const [currentUser, setCurrentUser] = useState<User>(MOCK_USER);
   const [theme, setTheme] = useState(() => localStorage.getItem('visitpro_theme') || 'indigo');
   
-  // Data States
-  const [clients, setClients] = useState<Client[]>(MOCK_CLIENTS);
-  const [visits, setVisits] = useState<Visit[]>(MOCK_VISITS);
-  const [users, setUsers] = useState<User[]>(MOCK_USERS_LIST);
-  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS);
-  const [roles, setRoles] = useState<Role[]>(MOCK_ROLES);
+  // Data States - Initialize with empty arrays to prevent flash of mock data
+  const [clients, setClients] = useState<Client[]>([]);
+  const [visits, setVisits] = useState<Visit[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   
   const [isLoading, setIsLoading] = useState(false);
   
@@ -247,6 +249,7 @@ const App: React.FC = () => {
   const refreshData = useCallback(async () => {
     setIsLoading(true);
     const supabase = initSupabase();
+    
     if (supabase) {
       console.log("Loading data from Supabase...");
       const [dbClients, dbVisits, dbUsers, dbDepts, dbRoles] = await Promise.all([
@@ -257,14 +260,36 @@ const App: React.FC = () => {
         fetchRoles()
       ]);
       
-      // If DB returns data (even empty array), override mocks.
-      // If DB returns null (error/not connected), keep current state (mocks or prev data).
-      if (dbClients !== null) setClients(dbClients);
-      if (dbVisits !== null) setVisits(dbVisits);
-      if (dbUsers !== null) setUsers(dbUsers);
-      if (dbDepts !== null) setDepartments(dbDepts);
-      if (dbRoles !== null) setRoles(dbRoles);
+      // Force usage of backend data (even if empty/null) when connected
+      setClients(dbClients || []);
+      setVisits(dbVisits || []);
+      setUsers(dbUsers || []);
+      setDepartments(dbDepts || []);
+      setRoles(dbRoles || []);
+      
+      // Try to determine current user from DB
+      if (dbUsers && dbUsers.length > 0) {
+         // Prefer admin, then any user
+         const found = dbUsers.find(u => u.role === '管理员') || dbUsers[0];
+         setCurrentUser(found);
+      } else {
+         // If DB has no users, we might be in a fresh install.
+         // Keep MOCK_USER or set a default "Admin" placeholder so they can create users?
+         // For now, we keep MOCK_USER as a fallback "local identity" to allow creating the first user.
+         console.warn("No users found in DB. Using default local user identity.");
+      }
+      
+    } else {
+      console.log("Supabase not configured. Using Mock Data.");
+      // Fallback to Mocks ONLY if Supabase is NOT configured
+      setClients(MOCK_CLIENTS);
+      setVisits(MOCK_VISITS);
+      setUsers(MOCK_USERS_LIST);
+      setDepartments(MOCK_DEPARTMENTS);
+      setRoles(MOCK_ROLES);
+      setCurrentUser(MOCK_USER);
     }
+    
     setIsLoading(false);
   }, []);
 

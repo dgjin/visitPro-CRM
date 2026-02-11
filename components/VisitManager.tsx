@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Visit, Client, Sentiment, CustomFieldDefinition, User, VisitRecording } from '../types';
 import { analyzeVisitNote, generateFollowUpEmail } from '../services/geminiService';
-import { IflytekStreamingSession, downsampleBuffer } from '../services/iflytekService';
+import { IflytekStreamingSession, downsampleBuffer, IflytekError } from '../services/iflytekService';
 import { upsertVisit, deleteVisit } from '../services/supabaseService';
 import { 
   Calendar, 
@@ -11,8 +11,8 @@ import {
   Sparkles, 
   Mail, 
   ChevronRight, 
-  Loader2,
-  Clock,
+  ChevronLeft, 
+  Loader2, 
   CheckSquare,
   User as UserIcon,
   PlayCircle,
@@ -26,8 +26,13 @@ import {
   List,
   ListOrdered,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Phone,
+  Video,
+  MapPin
 } from 'lucide-react';
+
+const ITEMS_PER_PAGE = 10;
 
 interface VisitManagerProps {
   visits: Visit[];
@@ -42,6 +47,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
   const [currentVisit, setCurrentVisit] = useState<Partial<Visit>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [expandedSection, setExpandedSection] = useState<'notes' | 'ai' | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   
   // Client Search State
   const [clientSearchTerm, setClientSearchTerm] = useState('');
@@ -92,23 +98,24 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
 
   // Sync content to editor div when switching visits or external updates (like voice)
   useEffect(() => {
-    if (editorRef.current) {
+    const editor = editorRef.current;
+    if (editor) {
+        const safeContent = currentVisit.content || '';
+        
         // Prevent cursor jumping: Only update innerHTML if the editor is NOT focused, 
         // OR if the content is empty (initial load), 
         // OR if the content is significantly different (e.g. Voice update or new visit loaded)
         // AND we are not currently typing (simple check: if innerHTML matches state, do nothing)
         
         const shouldUpdate = 
-            document.activeElement !== editorRef.current || 
-            (editorRef.current.innerHTML !== currentVisit.content && isRecording); // Allow update if recording
+            document.activeElement !== editor || 
+            (editor.innerHTML !== safeContent && isRecording); // Allow update if recording
 
-        if (shouldUpdate && currentVisit.content !== undefined) {
+        if (shouldUpdate) {
             // Check if content is actually different to avoid unnecessary resets
-            if (editorRef.current.innerHTML !== currentVisit.content) {
-                editorRef.current.innerHTML = currentVisit.content;
+            if (editor.innerHTML !== safeContent) {
+                editor.innerHTML = safeContent;
             }
-        } else if (currentVisit.content === undefined) {
-             editorRef.current.innerHTML = '';
         }
     }
   }, [currentVisit.id, currentVisit.content, isRecording]);
@@ -199,7 +206,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
       sourceNodeRef.current = source;
       
       // Use buffer size 2048 for ~42ms latency @ 48kHz (closer to iFlytek's 40ms frame)
-      // This improves real-time feel compared to 4096.
       const processor = audioCtx.createScriptProcessor(2048, 1, 1);
       scriptProcessorRef.current = processor;
 
@@ -212,23 +218,26 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
           (text, isFinal) => {
              setCurrentVisit(prev => ({
                 ...prev,
-                // Append text. For Rich Text, we just append content.
-                // The browser will render this text inside the div.
                 content: (prev.content || '') + text
              }));
           },
           (err) => {
              console.error("Stream Error", err);
-             // Don't alert on every error to avoid spamming if it's a transient network issue
-             // The onClose will handle restart if needed
+             if (err instanceof IflytekError) {
+                 if (err.isFatal) {
+                     alert(`讯飞语音转写失败：${err.message}\n建议检查配置或套餐状态。`);
+                     stopRecordingResources(); 
+                     return;
+                 } else {
+                     console.warn(`Non-fatal error: ${err.message}. Retrying...`);
+                 }
+             }
           },
           () => setRecordingState('recording'),
           () => {
-             // Session closed (e.g. VAD timeout or Network close)
-             // Check ref to see if user intends to keep recording
              if (isRecordingRef.current) {
                 console.log("iFlytek Session Closed, Auto-Restarting...");
-                setRecordingState('connecting'); // Update UI to show reconnecting
+                setRecordingState('connecting');
                 setTimeout(() => {
                    if (isRecordingRef.current) {
                       iflytekSessionRef.current = initSession();
@@ -246,7 +255,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
       iflytekSessionRef.current = initSession();
 
       processor.onaudioprocess = (e) => {
-        // Only process if session exists and is connected/connecting
         const inputData = e.inputBuffer.getChannelData(0); 
         const pcmData = downsampleBuffer(inputData, audioCtx.sampleRate);
         
@@ -275,20 +283,17 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
   };
 
   const stopRecordingResources = () => {
-    isRecordingRef.current = false; // Important: set first to prevent auto-restart
+    isRecordingRef.current = false;
 
-    // Stop Media Recorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
 
-    // Stop Stream Tracks
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
 
-    // Stop Audio Processing
     if (scriptProcessorRef.current) {
         scriptProcessorRef.current.disconnect();
         scriptProcessorRef.current = null;
@@ -302,7 +307,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
         audioContextRef.current = null;
     }
     
-    // Stop Session
     if (iflytekSessionRef.current) {
         iflytekSessionRef.current.stop();
         iflytekSessionRef.current = null;
@@ -325,7 +329,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
   };
 
   const handleDeleteRecording = (index: number, e: React.MouseEvent) => {
-      // Use index instead of ID for more reliable deletion in local state
       e.stopPropagation();
       e.preventDefault();
       
@@ -341,18 +344,18 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
       });
   };
 
-  const handleDeleteVisit = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDeleteVisit = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!confirm("确定要删除这条拜访记录吗？此操作无法撤销。")) return;
     
     setVisits(prev => prev.filter(v => v.id !== id));
-    await deleteVisit(id);
     
-    // If we are currently editing the visit we just deleted, go back to list
     if (viewMode === 'EDITOR' && currentVisit.id === id) {
       setViewMode('LIST');
       setCurrentVisit({});
     }
+
+    await deleteVisit(id);
   };
 
   const handleSave = async () => {
@@ -360,7 +363,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
       alert("请搜索并选择一个客户。");
       return;
     }
-    // Get content from ref to ensure latest HTML is saved
+    
     const contentToSave = editorRef.current?.innerHTML || currentVisit.content || '';
     
     if (!contentToSave && (!currentVisit.recordings || currentVisit.recordings.length === 0)) {
@@ -383,7 +386,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
         ownerId: currentVisit.ownerId,
         ownerName: currentVisit.ownerName,
         recordings: currentVisit.recordings || [],
-        // Explicitly clear legacy recordingData to prevent "zombie" recordings from reappearing after migration
         recordingData: null, 
         summary: currentVisit.summary,
         sentiment: currentVisit.sentiment,
@@ -407,15 +409,55 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
 
       setIsSaving(false);
       setViewMode('LIST');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Save failed", error);
+      
+      if (error.message && error.message.startsWith("PARTIAL_SUCCESS:")) {
+         const msg = error.message.replace("PARTIAL_SUCCESS: ", "");
+         alert(`⚠️ ${msg}\n\n建议联系管理员更新数据库结构。`);
+         setIsSaving(false);
+         setViewMode('LIST');
+         
+         const visitToSave: Visit = {
+            id: currentVisit.id || Date.now().toString(),
+            clientId: currentVisit.clientId!,
+            clientName: currentVisit.clientName!,
+            date: currentVisit.date || new Date().toISOString(),
+            content: contentToSave,
+            type: currentVisit.type || '线下拜访',
+            location: currentVisit.location,
+            clientParticipants: currentVisit.clientParticipants,
+            ourParticipants: currentVisit.ourParticipants,
+            ownerId: currentVisit.ownerId,
+            ownerName: currentVisit.ownerName,
+            recordings: currentVisit.recordings || [],
+            recordingData: null, 
+            summary: currentVisit.summary,
+            sentiment: currentVisit.sentiment,
+            actionItems: currentVisit.actionItems,
+            followUpDraft: currentVisit.followUpDraft,
+            customFields: currentVisit.customFields || {}
+          };
+          
+          setVisits(prev => {
+            const index = prev.findIndex(v => v.id === visitToSave.id);
+            if (index >= 0) {
+              const newVisits = [...prev];
+              newVisits[index] = visitToSave;
+              return newVisits;
+            } else {
+              return [visitToSave, ...prev];
+            }
+          });
+         return;
+      }
+      
       alert("保存失败，请检查网络或控制台日志。");
       setIsSaving(false);
     }
   };
 
   const handleAIAnalyze = async () => {
-    // Strip HTML for analysis to avoid token waste and confusion
     const rawText = editorRef.current?.innerText || currentVisit.content || '';
     if (!rawText) return;
     
@@ -454,16 +496,32 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
 
   const handleFormat = (command: string) => {
     document.execCommand(command, false);
-    if (editorRef.current) {
-        editorRef.current.focus();
-        setCurrentVisit(prev => ({...prev, content: editorRef.current?.innerHTML || ''}));
+    const editor = editorRef.current;
+    if (editor) {
+        editor.focus();
+        const content = editor.innerHTML || '';
+        setCurrentVisit(prev => ({...prev, content}));
     }
   };
+
+  const totalPages = Math.ceil(visits.length / ITEMS_PER_PAGE);
+  const paginatedVisits = visits.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   const filteredClients = clients.filter(c => 
     c.name.toLowerCase().includes(clientSearchTerm.toLowerCase()) ||
     c.industry.toLowerCase().includes(clientSearchTerm.toLowerCase())
   );
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case '线上会议': return <Video className="w-4 h-4 text-blue-500" />;
+      case '电话沟通': return <Phone className="w-4 h-4 text-emerald-500" />;
+      case '客户到访': return <Building className="w-4 h-4 text-amber-500" />;
+      default: return <UserIcon className="w-4 h-4 text-indigo-500" />;
+    }
+  };
+
+  const Building = (props: any) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>;
 
   // LIST VIEW
   if (viewMode === 'LIST') {
@@ -480,85 +538,124 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
           </button>
         </div>
 
-        <div className="space-y-4 overflow-y-auto pb-20">
-          {visits.map(visit => {
-            const canDelete = currentUser?.role === '管理员' || (visit.ownerId && currentUser?.id === visit.ownerId);
-            return (
-              <div 
-                key={visit.id}
-                onClick={() => {
-                  const dateObj = new Date(visit.date);
-                  dateObj.setMinutes(dateObj.getMinutes() - dateObj.getTimezoneOffset());
-                  const formattedDate = dateObj.toISOString().slice(0, 16);
-                  
-                  // Migrate old singular recording to array if needed
-                  let recs = visit.recordings || [];
-                  if (recs.length === 0 && visit.recordingData) {
-                      recs = [{ id: 'legacy', url: visit.recordingData, timestamp: visit.date }];
-                  }
+        <div className="flex-1 overflow-y-auto bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col">
+          <div className="flex-1 overflow-y-auto">
+            {paginatedVisits.map((visit, index) => {
+              const canDelete = currentUser?.role === '管理员' || (visit.ownerId && currentUser?.id === visit.ownerId);
+              const dateObj = new Date(visit.date);
+              const day = dateObj.getDate();
+              const month = dateObj.getMonth() + 1;
+              const time = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-                  setCurrentVisit({ ...visit, date: formattedDate, recordings: recs });
-                  setViewMode('EDITOR');
-                }}
-                className="bg-white p-5 rounded-2xl border border-slate-100 hover:shadow-md cursor-pointer group transition-all relative"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center space-x-2 mb-1">
-                      <h3 className="font-bold text-slate-800">{visit.clientName}</h3>
-                      <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md">{visit.type}</span>
-                      {(visit.recordings?.length ?? 0) > 0 && (
-                          <span className="flex items-center text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                            <Volume2 className="w-3 h-3 mr-1" /> {visit.recordings?.length}
-                          </span>
+              return (
+                <div 
+                  key={visit.id}
+                  onClick={() => {
+                    const d = new Date(visit.date);
+                    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                    const formattedDate = d.toISOString().slice(0, 16);
+                    
+                    let recs = visit.recordings || [];
+                    if (recs.length === 0 && visit.recordingData) {
+                        recs = [{ id: 'legacy', url: visit.recordingData, timestamp: visit.date }];
+                    }
+
+                    setCurrentVisit({ ...visit, date: formattedDate, recordings: recs });
+                    setViewMode('EDITOR');
+                  }}
+                  className={`flex items-start p-4 hover:bg-slate-50 transition-colors cursor-pointer group border-b border-slate-50 last:border-0`}
+                >
+                   {/* Left: Time & Type */}
+                   <div className="w-24 flex-shrink-0 flex flex-col items-center justify-center mr-4 border-r border-slate-100 pr-4">
+                      <div className="text-xl font-bold text-slate-700 leading-none">{month}/{day}</div>
+                      <div className="text-xs text-slate-400 mt-1 mb-2">{time}</div>
+                      <div className="p-1.5 bg-slate-100 rounded-lg" title={visit.type}>
+                        {getTypeIcon(visit.type)}
+                      </div>
+                   </div>
+
+                   {/* Middle: Content */}
+                   <div className="flex-1 min-w-0 mr-4">
+                      <div className="flex items-center mb-1">
+                         <h3 className="font-bold text-slate-800 text-base truncate">{visit.clientName}</h3>
+                         {visit.sentiment && (
+                            <div className={`ml-2 h-2 w-2 rounded-full ${
+                                visit.sentiment === Sentiment.Positive ? 'bg-emerald-500' :
+                                visit.sentiment === Sentiment.Negative ? 'bg-red-500' : 'bg-slate-300'
+                            }`} title={`情感倾向: ${visit.sentiment}`}></div>
+                         )}
+                      </div>
+                      <p className="text-sm text-slate-600 line-clamp-2 leading-relaxed">
+                         {visit.summary || visit.content?.replace(/<[^>]+>/g, '') || <span className="text-slate-300 italic">无内容</span>}
+                      </p>
+                      
+                      <div className="flex items-center gap-3 mt-2">
+                         {(visit.recordings?.length ?? 0) > 0 && (
+                            <span className="flex items-center text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                               <Volume2 className="w-3 h-3 mr-1" /> {visit.recordings?.length}
+                            </span>
+                         )}
+                         {visit.actionItems && visit.actionItems.length > 0 && (
+                            <span className="flex items-center text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
+                               <CheckSquare className="w-3 h-3 mr-1" /> {visit.actionItems.length} 待办
+                            </span>
+                         )}
+                      </div>
+                   </div>
+
+                   {/* Right: Meta & Actions */}
+                   <div className="w-32 flex-shrink-0 flex flex-col items-end justify-between self-stretch pl-4 border-l border-slate-50">
+                      <div className="flex items-center text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
+                         <UserIcon className="w-3 h-3 mr-1" />
+                         <span className="truncate max-w-[80px]">{visit.ownerName || 'Unknown'}</span>
+                      </div>
+                      
+                      {canDelete && (
+                         <button
+                           onClick={(e) => handleDeleteVisit(visit.id, e)}
+                           className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+                           title="删除记录"
+                         >
+                           <Trash2 className="w-4 h-4" />
+                         </button>
                       )}
-                    </div>
-                    <div className="flex flex-col gap-1 mt-2">
-                      <div className="flex items-center gap-4 text-sm text-slate-500">
-                        <span className="flex items-center">
-                          <Clock className="w-3 h-3 mr-1" />
-                          {new Date(visit.date).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-slate-400">
-                          <span className="flex items-center">
-                            <UserIcon className="w-3 h-3 mr-1" />
-                            {visit.ownerName || '未知'}
-                          </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    {visit.sentiment && (
-                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                        visit.sentiment === Sentiment.Positive ? 'bg-green-100 text-green-700' :
-                        visit.sentiment === Sentiment.Negative ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
-                      }`}>
-                        {visit.sentiment}
-                      </span>
-                    )}
-                    {canDelete && (
-                      <button
-                        onClick={(e) => handleDeleteVisit(visit.id, e)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                        title="删除记录"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
+                   </div>
                 </div>
-                <p className="mt-3 text-sm text-slate-600 line-clamp-2">
-                  {/* Strip HTML for list preview */}
-                  {(visit.summary || visit.content || '').replace(/<[^>]+>/g, '')}
-                </p>
+              );
+            })}
+            {visits.length === 0 && (
+              <div className="text-center py-20 text-slate-400">
+                <Calendar className="w-16 h-16 mx-auto mb-4 opacity-10" />
+                <p>暂无拜访记录</p>
               </div>
-            );
-          })}
-          {visits.length === 0 && (
-            <div className="text-center py-20 text-slate-400">
-              <Calendar className="w-16 h-16 mx-auto mb-4 opacity-10" />
-              <p>暂无拜访记录</p>
+            )}
+          </div>
+
+          {/* Pagination */}
+          {visits.length > 0 && (
+            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+               <span className="text-xs text-slate-500">
+                  显示 {Math.min(visits.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)} - {Math.min(visits.length, currentPage * ITEMS_PER_PAGE)} 共 {visits.length} 条
+               </span>
+               <div className="flex space-x-2">
+                  <button 
+                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                     disabled={currentPage === 1}
+                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                     <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs flex items-center px-2 font-medium text-slate-600">
+                     {currentPage} / {totalPages}
+                  </span>
+                  <button 
+                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                     disabled={currentPage === totalPages}
+                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                     <ChevronRight className="w-4 h-4" />
+                  </button>
+               </div>
             </div>
           )}
         </div>
@@ -577,14 +674,25 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
         >
           <ChevronRight className="w-4 h-4 mr-1 rotate-180" /> 返回
         </button>
-        <button 
-          onClick={handleSave}
-          disabled={isSaving}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center text-sm font-medium disabled:opacity-70"
-        >
-          {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-          {isSaving ? '保存中...' : '保存记录'}
-        </button>
+        <div className="flex gap-2">
+          {currentVisit.id && visits.find(v => v.id === currentVisit.id) && (
+            <button 
+               onClick={() => currentVisit.id && handleDeleteVisit(currentVisit.id)}
+               className="text-red-500 hover:bg-red-50 px-3 py-2 rounded-lg flex items-center text-sm font-medium transition-colors"
+               title="删除记录"
+            >
+               <Trash2 className="w-4 h-4 mr-1" /> 删除
+            </button>
+          )}
+          <button 
+            onClick={handleSave}
+            disabled={isSaving}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center text-sm font-medium disabled:opacity-70"
+          >
+            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+            {isSaving ? '保存中...' : '保存记录'}
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-hidden">
@@ -601,7 +709,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                    <input 
                      type="text"
-                     className="w-full pl-9 pr-8 p-2.5 rounded-lg border border-slate-200 bg-white text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                     className="w-full pl-9 pr-8 p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
                      placeholder="搜索选择客户..."
                      value={clientSearchTerm}
                      onFocus={() => setIsClientDropdownOpen(true)}
@@ -642,7 +750,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                 <div>
                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">方式</label>
                    <select 
-                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-sm"
+                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm"
                      value={currentVisit.type}
                      onChange={(e: any) => setCurrentVisit(prev => ({ ...prev, type: e.target.value }))}
                    >
@@ -666,26 +774,82 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                    </div>
                    <input 
                      type="datetime-local"
-                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-sm"
+                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm"
                      value={currentVisit.date || ''}
                      onChange={(e) => setCurrentVisit(prev => ({ ...prev, date: e.target.value }))}
                    />
                 </div>
              </div>
              
-             {/* Custom Fields */}
+             {/* Participants & Location (Added Section) */}
+             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-3">
+                 {/* Location */}
+                 <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">拜访地点</label>
+                    <div className="relative">
+                       <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                       <input 
+                          className="w-full pl-9 pr-3 p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                          placeholder="输入地址或会议室..."
+                          value={currentVisit.location || ''}
+                          onChange={(e) => setCurrentVisit(prev => ({ ...prev, location: e.target.value }))}
+                       />
+                    </div>
+                 </div>
+
+                 {/* Participants */}
+                 <div className="grid grid-cols-2 gap-3">
+                      <div>
+                         <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">客户参与人</label>
+                         <input 
+                             className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                             value={currentVisit.clientParticipants || ''}
+                             placeholder="姓名, 职位..."
+                             onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientParticipants: e.target.value }))}
+                         />
+                      </div>
+                      <div>
+                         <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">我方参与人</label>
+                         <input 
+                             className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                             value={currentVisit.ourParticipants || ''}
+                             placeholder="同事姓名..."
+                             onChange={(e) => setCurrentVisit(prev => ({ ...prev, ourParticipants: e.target.value }))}
+                         />
+                      </div>
+                 </div>
+                 
+                  {/* Owner */}
+                 <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">负责人 (录入人)</label>
+                    <div className="flex items-center p-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm">
+                        <UserIcon className="w-4 h-4 mr-2 text-slate-400" />
+                        {currentVisit.ownerName || currentUser.name}
+                    </div>
+                 </div>
+             </div>
+
+             {/* Custom Fields - Optimized for Type Safety */}
              {fieldDefinitions.length > 0 && (
                 <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
                   {fieldDefinitions.map(field => (
                     <div key={field.id}>
                       <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">{field.label}</label>
                       <input 
-                        className="w-full p-2 rounded-lg border border-slate-200 bg-white text-sm"
+                        type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+                        className="w-full p-2 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm"
                         value={currentVisit.customFields?.[field.key] || ''}
-                        onChange={(e) => setCurrentVisit(prev => ({
-                          ...prev,
-                          customFields: { ...prev.customFields, [field.key]: e.target.value }
-                        }))}
+                        onChange={(e) => {
+                            let val: any = e.target.value;
+                            // Optimize: Cast number types to actual numbers
+                            if (field.type === 'number') {
+                                val = val === '' ? null : Number(val);
+                            }
+                            setCurrentVisit(prev => ({
+                              ...prev,
+                              customFields: { ...prev.customFields, [field.key]: val }
+                            }));
+                        }}
                       />
                     </div>
                   ))}
@@ -790,16 +954,16 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                   ref={editorRef}
                   contentEditable
                   suppressContentEditableWarning
-                  className="flex-1 p-4 bg-white outline-none overflow-y-auto text-slate-700 leading-relaxed text-base [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none"
+                  className="flex-1 p-4 bg-white outline-none overflow-y-auto text-slate-900 leading-relaxed text-base [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none"
                   onInput={(e) => {
-                     // Sync state on manual input
-                     setCurrentVisit(prev => ({...prev, content: e.currentTarget.innerHTML}));
+                     // Sync state on manual input - capture value immediately to prevent stale event issues
+                     const newContent = e.currentTarget.innerHTML;
+                     setCurrentVisit(prev => ({...prev, content: newContent}));
                   }}
-                  onBlur={() => {
-                     // Ensure state is synced on blur
-                     if (editorRef.current) {
-                        setCurrentVisit(prev => ({...prev, content: editorRef.current?.innerHTML || ''}));
-                     }
+                  onBlur={(e) => {
+                     // Ensure state is synced on blur - capture value immediately
+                     const newContent = e.currentTarget.innerHTML;
+                     setCurrentVisit(prev => ({...prev, content: newContent}));
                   }}
                   data-placeholder="开始输入，或点击右下角麦克风进行实时语音转写..."
                 />
@@ -906,7 +1070,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                   <div className="relative">
                     <textarea 
                       readOnly
-                      className="w-full h-32 text-xs bg-white p-3 rounded-lg border border-slate-100 text-slate-600 font-mono resize-none focus:outline-none"
+                      className="w-full h-32 text-xs bg-white p-3 rounded-lg border border-slate-100 text-slate-800 font-mono resize-none focus:outline-none"
                       value={currentVisit.followUpDraft}
                     />
                     <button className="absolute bottom-2 right-2 p-1.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">

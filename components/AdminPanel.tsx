@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, Database, Shield, Cpu, CheckCircle, AlertCircle, Plus, Trash2, List, Edit2, X, RefreshCw, Mic, Palette } from 'lucide-react';
-import { getStoredConfig, saveConfig, initSupabase } from '../services/supabaseService';
+import { Settings, Save, Database, Shield, Cpu, CheckCircle, AlertCircle, Plus, Trash2, List, Edit2, X, RefreshCw, Mic, Palette, BrainCircuit, RotateCw } from 'lucide-react';
+import { getStoredConfig, saveConfig, initSupabase, reloadSchemaCache } from '../services/supabaseService';
 import { getIflytekConfig, saveIflytekConfig } from '../services/iflytekService';
-import { CustomFieldDefinition, EntityType, FieldType } from '../types';
+import { CustomFieldDefinition, EntityType, FieldType, AIModelType } from '../types';
 
 interface AdminPanelProps {
   fieldDefinitions?: CustomFieldDefinition[];
   setFieldDefinitions?: React.Dispatch<React.SetStateAction<CustomFieldDefinition[]>>;
   onConfigSave?: () => void;
 }
+
+const AI_MODEL_KEY = 'visitpro_ai_model';
+const DEEPSEEK_KEY_KEY = 'visitpro_deepseek_key';
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ 
   fieldDefinitions = [], 
@@ -18,12 +21,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [sbUrl, setSbUrl] = useState('');
   const [sbKey, setSbKey] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isReloadingCache, setIsReloadingCache] = useState(false);
+  
+  // AI Config State
+  const [aiModel, setAiModel] = useState<AIModelType>('gemini');
+  const [deepseekKey, setDeepseekKey] = useState('');
   
   // iFlytek State
   const [iflytekAppId, setIflytekAppId] = useState('');
   const [iflytekApiSecret, setIflytekApiSecret] = useState('');
   const [iflytekApiKey, setIflytekApiKey] = useState('');
-  const [iflytekDomain, setIflytekDomain] = useState('iat');
+  const [iflytekDomain, setIflytekDomain] = useState('generalv3.5');
+  const [iflytekSttDomain, setIflytekSttDomain] = useState('iat');
   
   // Custom Field State
   const [activeTab, setActiveTab] = useState<EntityType>('CLIENT');
@@ -39,18 +48,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   useEffect(() => {
     if (!isEnvConfigured) {
       const config = getStoredConfig();
-      // Use stored config or fallback to provided defaults for testing
       setSbUrl(config.url || 'https://gdrruugeqttiyufqqaug.supabase.co');
       setSbKey(config.key || 'sb_publishable_h_ehiKEEFGHT7iw0IDKFQQ_jDjuXY5u');
     }
     
     // Load iFlytek Config
     const iflyConfig = getIflytekConfig();
-    // Use stored config or fallback to provided defaults for testing
     setIflytekAppId(iflyConfig.appId || '8cc61805');
     setIflytekApiSecret(iflyConfig.apiSecret || 'MjU5OTkzOWMyN2ZiNDhlMDNkNjdjMDli');
     setIflytekApiKey(iflyConfig.apiKey || 'ffed16b33a183c42c3b989d5306f0d75');
-    setIflytekDomain(iflyConfig.domain || 'iat');
+    setIflytekDomain(iflyConfig.domain || 'generalv3.5');
+    setIflytekSttDomain(iflyConfig.sttDomain || 'iat');
+
+    // Load AI Config
+    setAiModel((localStorage.getItem(AI_MODEL_KEY) as AIModelType) || 'gemini');
+    setDeepseekKey(localStorage.getItem(DEEPSEEK_KEY_KEY) || '');
   }, [isEnvConfigured]);
 
   // Reset form when switching tabs
@@ -84,20 +96,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setConnectionStatus('error');
     }
   };
+
+  const handleReloadSchemaCache = async () => {
+    setIsReloadingCache(true);
+    try {
+      await reloadSchemaCache();
+      alert("数据库缓存刷新请求已发送。请重试保存操作。");
+    } catch (e: any) {
+      alert(`刷新失败: ${e.message}\n请确保已运行最新的 SQL 脚本并创建了 reload_schema_cache 函数。`);
+    } finally {
+      setIsReloadingCache(false);
+    }
+  };
   
   const handleSaveIflytek = () => {
     const appId = iflytekAppId.trim();
     const secret = iflytekApiSecret.trim();
     const key = iflytekApiKey.trim();
     const domain = iflytekDomain.trim();
+    const sttDomain = iflytekSttDomain.trim();
     
     setIflytekAppId(appId);
     setIflytekApiSecret(secret);
     setIflytekApiKey(key);
     setIflytekDomain(domain);
+    setIflytekSttDomain(sttDomain);
     
-    saveIflytekConfig(appId, secret, key, domain);
+    saveIflytekConfig(appId, secret, key, domain, sttDomain);
     alert("科大讯飞配置已保存");
+  };
+
+  const handleSaveAIConfig = () => {
+      localStorage.setItem(AI_MODEL_KEY, aiModel);
+      localStorage.setItem(DEEPSEEK_KEY_KEY, deepseekKey.trim());
+      alert("AI 模型配置已更新");
   };
 
   const handleEditClick = (field: CustomFieldDefinition) => {
@@ -124,17 +156,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             label: fieldLabel,
             type: fieldType,
             options: fieldType === 'select' ? fieldOptions.split(/,|，/).map(s => s.trim()).filter(Boolean) : undefined,
-            // Note: We DO NOT update the 'key' to prevent breaking existing data associations
           };
         }
         return f;
       }));
     } else {
       // --- CREATE NEW ---
-      // Generate a simple key from label
       const key = fieldLabel.toLowerCase().replace(/\s+/g, '_').replace(/[^\w]/g, '');
       
-      // Check for duplicates
       if (fieldDefinitions.some(f => f.entityType === activeTab && f.key === key)) {
         alert("该字段名已存在，请使用其他名称");
         return;
@@ -173,6 +202,60 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       <div className="space-y-6">
 
+        {/* AI Model Configuration */}
+        <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+           <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+             <BrainCircuit className="w-5 h-5 mr-2 text-indigo-600" />
+             AI 大模型配置
+           </h3>
+           <div className="space-y-4">
+              <div>
+                 <label className="block text-sm font-medium text-slate-700 mb-1">默认分析模型</label>
+                 <select 
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value as AIModelType)}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                 >
+                    <option value="gemini">Google Gemini 3 (Flash)</option>
+                    <option value="deepseek">DeepSeek (V3)</option>
+                    <option value="spark">讯飞星火 (Spark Desk)</option>
+                 </select>
+                 <p className="text-xs text-slate-400 mt-1">
+                    选择用于经营分析、拜访总结和邮件生成的后台模型。
+                    {aiModel === 'gemini' && <span className="text-emerald-600 ml-1">Gemini Key 已通过环境变量配置。</span>}
+                 </p>
+              </div>
+
+              {aiModel === 'deepseek' && (
+                  <div className="animate-fade-in-down">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">DeepSeek API Key</label>
+                    <input 
+                        type="password" 
+                        value={deepseekKey}
+                        onChange={(e) => setDeepseekKey(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                        placeholder="sk-..."
+                    />
+                  </div>
+              )}
+
+              {aiModel === 'spark' && (
+                  <div className="animate-fade-in-down p-3 bg-amber-50 border border-amber-100 rounded-lg text-xs text-amber-800">
+                     讯飞星火模型将复用下方的“科大讯飞语音配置”中的 AppID、API Key 和 API Secret。请确保下方的 Domain 参数正确（推荐 generalv3.5）。
+                  </div>
+              )}
+
+              <div className="flex justify-end pt-2">
+                 <button 
+                  onClick={handleSaveAIConfig}
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700"
+                 >
+                   保存 AI 模型设置
+                 </button>
+              </div>
+           </div>
+        </section>
+        
         {/* Custom Field Configuration */}
         <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
@@ -303,7 +386,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
           <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
             <Mic className="w-5 h-5 mr-2 text-indigo-600" />
-            科大讯飞语音配置 (iFlytek)
+            科大讯飞语音/大模型配置 (iFlytek)
           </h3>
           <div className="space-y-4">
             <div>
@@ -336,25 +419,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 placeholder="API Secret"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">业务领域 (Domain)</label>
-              <input 
-                type="text" 
-                value={iflytekDomain}
-                onChange={(e) => setIflytekDomain(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                placeholder="默认: iat, 可填 pro_large 等"
-              />
-              <p className="text-xs text-slate-400 mt-1">
-                 普通听写默认为 <code>iat</code>。如购买了极速超脑或特定模型，请参考讯飞文档填写对应 domain 参数。
-              </p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">大模型版本 (Domain)</label>
+                  <input 
+                    type="text" 
+                    value={iflytekDomain}
+                    onChange={(e) => setIflytekDomain(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                    placeholder="默认: generalv3.5 (Spark Max)"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                     用于“星火大模型”分析功能。推荐 <code>generalv3.5</code>。
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">语音转文字模型</label>
+                  <select 
+                    value={iflytekSttDomain}
+                    onChange={(e) => setIflytekSttDomain(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-800 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  >
+                    <option value="iat">通用标准版 (iat)</option>
+                    <option value="pro_iat">极速语音转大模型 (pro_iat)</option>
+                    <option value="general_fast">实时语音转写大模型 (general_fast)</option>
+                  </select>
+                  <p className="text-xs text-slate-400 mt-1">
+                     用于实时语音听写功能。推荐使用 <code>general_fast</code> 以获得更好的体验。
+                  </p>
+                </div>
             </div>
+
             <div className="flex justify-end pt-2">
                <button 
                 onClick={handleSaveIflytek}
                 className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700"
                >
-                 保存配置
+                 保存讯飞配置
                </button>
             </div>
           </div>
@@ -369,14 +471,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           
           <div className="space-y-4">
             {isEnvConfigured ? (
-              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-start">
-                <CheckCircle className="w-5 h-5 text-emerald-600 mr-3 mt-0.5" />
-                <div>
-                  <h4 className="font-bold text-emerald-900 text-sm">已通过环境变量配置</h4>
-                  <p className="text-xs text-emerald-700 mt-1">
-                    系统已检测到 `process.env.SUPABASE_URL`。本地配置界面已禁用。
-                  </p>
+              <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl flex items-start justify-between">
+                <div className="flex items-start">
+                  <CheckCircle className="w-5 h-5 text-emerald-600 mr-3 mt-0.5" />
+                  <div>
+                    <h4 className="font-bold text-emerald-900 text-sm">已通过环境变量配置</h4>
+                    <p className="text-xs text-emerald-700 mt-1">
+                      系统已检测到 `process.env.SUPABASE_URL`。本地配置界面已禁用。
+                    </p>
+                  </div>
                 </div>
+                <button 
+                   onClick={handleReloadSchemaCache}
+                   disabled={isReloadingCache}
+                   className="text-xs flex items-center text-emerald-700 hover:text-emerald-900 bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                >
+                   <RotateCw className={`w-3 h-3 mr-1 ${isReloadingCache ? 'animate-spin' : ''}`} />
+                   刷新数据库缓存
+                </button>
               </div>
             ) : (
               <>
@@ -406,12 +518,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                      {connectionStatus === 'success' && <span className="text-xs text-emerald-600 flex items-center"><CheckCircle className="w-4 h-4 mr-1"/> 连接成功</span>}
                      {connectionStatus === 'error' && <span className="text-xs text-red-600 flex items-center"><AlertCircle className="w-4 h-4 mr-1"/> 连接失败，请检查配置</span>}
                    </div>
-                   <button 
-                    onClick={handleSaveSupabase}
-                    className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700"
-                   >
-                     保存并连接
-                   </button>
+                   <div className="flex space-x-2">
+                     <button 
+                        onClick={handleReloadSchemaCache}
+                        disabled={isReloadingCache || !sbUrl || !sbKey}
+                        className="text-slate-600 bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-lg text-sm font-medium flex items-center"
+                        title="解决 'Column not found' 错误"
+                     >
+                        <RotateCw className={`w-4 h-4 mr-1 ${isReloadingCache ? 'animate-spin' : ''}`} />
+                        刷新缓存
+                     </button>
+                     <button 
+                      onClick={handleSaveSupabase}
+                      className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-slate-700"
+                     >
+                       保存并连接
+                     </button>
+                   </div>
                 </div>
               </>
             )}

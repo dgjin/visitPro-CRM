@@ -25,6 +25,13 @@ export interface Shareholder {
   type?: 'individual' | 'institution';
 }
 
+export interface Subsidiary {
+  name: string;
+  percentage: number; // Client owns X% of subsidiary
+  industry?: string;
+  status?: string;
+}
+
 export interface Client {
   id: string;
   name: string;
@@ -38,9 +45,10 @@ export interface Client {
   ownerName?: string;
 
   // Dynamic fields
-  customFields?: Record<string, string>;
+  customFields?: Record<string, any>;
   // AI Profile Data
-  equityStructure?: Shareholder[]; // Now structured data
+  equityStructure?: Shareholder[]; // Upstream: Shareholders
+  subsidiaries?: Subsidiary[];     // Downstream: Subsidiaries
   financialAnalysis?: string;
   supplyChainInfo?: string;
 }
@@ -80,7 +88,7 @@ export interface Visit {
   followUpDraft?: string;
   
   // Dynamic fields
-  customFields?: Record<string, string>;
+  customFields?: Record<string, any>;
 }
 
 export interface Role {
@@ -112,13 +120,16 @@ export interface User {
   avatarUrl: string;
   status?: 'active' | 'inactive';
   role?: string; // Legacy string or display name
-  customFields?: Record<string, string>;
+  customFields?: Record<string, any>;
 }
 
 export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES';
 
+export type AIModelType = 'gemini' | 'deepseek' | 'spark';
+
 export interface AppSettings {
-  aiModel: 'gemini' | 'deepseek'; // deepseek is placeholder logic
+  aiModel: AIModelType;
+  deepseekApiKey?: string;
   themeColor: string;
 }
 

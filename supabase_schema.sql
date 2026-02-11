@@ -54,6 +54,7 @@ create table if not exists public.clients (
     
     -- AI 画像数据
     "equityStructure" jsonb default '[]'::jsonb, -- 修改为 JSONB 存储结构化股东数据
+    "subsidiaries" jsonb default '[]'::jsonb, -- 修改为 JSONB 存储子公司数据
     "financialAnalysis" text,
     "supplyChainInfo" text,
     
@@ -132,6 +133,10 @@ begin
 
   if not exists (select 1 from information_schema.columns where table_name = 'clients' and column_name = 'equityStructure') then
     alter table public.clients add column "equityStructure" jsonb default '[]'::jsonb;
+  end if;
+
+  if not exists (select 1 from information_schema.columns where table_name = 'clients' and column_name = 'subsidiaries') then
+    alter table public.clients add column "subsidiaries" jsonb default '[]'::jsonb;
   end if;
 end $$;
 

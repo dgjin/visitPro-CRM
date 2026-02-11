@@ -1,20 +1,27 @@
 import React, { useState } from 'react';
-import { Client, ClientStatus, CustomFieldDefinition, Contact, Shareholder, User } from '../types';
+import { Client, ClientStatus, CustomFieldDefinition, Contact, Shareholder, Subsidiary, User } from '../types';
 import { 
   Search, Plus, MapPin, Mail, Phone, Building, Briefcase, 
   X, Loader2, BarChart2, Users, Save, Edit2, Trash2, PieChart as PieIcon,
   Contact as ContactIcon,
   ChevronRight,
+  ChevronLeft,
   User as UserIcon,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Share2,
+  LayoutGrid,
+  ArrowDown,
+  RefreshCw,
+  ArrowLeft,
+  MoreHorizontal
 } from 'lucide-react';
 import { 
   PieChart, 
   Pie, 
   Cell, 
   Tooltip as RechartsTooltip, 
-  ResponsiveContainer,
+  ResponsiveContainer, 
   Legend 
 } from 'recharts';
 import { generateClientProfile } from '../services/geminiService';
@@ -45,6 +52,7 @@ const NATIONAL_STANDARD_INDUSTRIES = [
 ];
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
+const ITEMS_PER_PAGE = 10;
 
 interface ClientManagerProps {
   clients: Client[];
@@ -53,19 +61,207 @@ interface ClientManagerProps {
   currentUser?: User;
 }
 
+// Internal Component: SVG Mind Map for Equity Structure (Upstream & Downstream)
+const EquityStructureMap = ({ 
+  clientName, 
+  shareholders, 
+  subsidiaries,
+  onSelectShareholder,
+  onSelectSubsidiary,
+  selectedType, // 'shareholder' | 'subsidiary' | null
+  selectedIndex // number | null
+}: { 
+  clientName: string; 
+  shareholders: Shareholder[]; 
+  subsidiaries: Subsidiary[];
+  onSelectShareholder: (index: number) => void;
+  onSelectSubsidiary: (index: number) => void;
+  selectedType: 'shareholder' | 'subsidiary' | null;
+  selectedIndex: number | null;
+}) => {
+  const width = 800;
+  const height = 600;
+  const cx = width / 2;
+  const cy = height / 2;
+  
+  // Helper to distribute nodes on an arc
+  // For shareholders (Top): Angle -PI to 0
+  // For subsidiaries (Bottom): Angle 0 to PI
+  const calculatePositions = (count: number, radius: number, isTop: boolean) => {
+    if (count === 0) return [];
+    // Limit arc spread based on count to avoid too wide spread for few nodes
+    const spread = Math.min(Math.PI * 0.8, count * (Math.PI / 4)); 
+    const startAngle = isTop ? -Math.PI / 2 - spread / 2 : Math.PI / 2 - spread / 2;
+    const step = spread / (count > 1 ? count - 1 : 1);
+    
+    return Array.from({ length: count }).map((_, i) => {
+       const angle = count === 1 ? (isTop ? -Math.PI / 2 : Math.PI / 2) : startAngle + i * step;
+       return {
+          x: cx + radius * Math.cos(angle),
+          y: cy + radius * Math.sin(angle)
+       };
+    });
+  };
+
+  const shareholderPositions = calculatePositions(shareholders.length, 180, true);
+  const subsidiaryPositions = calculatePositions(subsidiaries.length, 180, false);
+
+  return (
+    <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} className="select-none font-sans" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="28" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#94a3b8" />
+        </marker>
+        <marker id="arrowhead-reverse" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto">
+            <polygon points="8 0, 0 3, 8 6" fill="#94a3b8" />
+        </marker>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow dx="1" dy="2" stdDeviation="2" floodOpacity="0.1"/>
+        </filter>
+      </defs>
+      
+      {/* --- Connecting Lines --- */}
+      
+      {/* Shareholders -> Client (Top Down) */}
+      {shareholderPositions.map((pos, i) => {
+         const isSelected = selectedType === 'shareholder' && selectedIndex === i;
+         return (
+            <line 
+               key={`line-sh-${i}`}
+               x1={pos.x} y1={pos.y} x2={cx} y2={cy}
+               stroke={isSelected ? "#6366f1" : "#cbd5e1"}
+               strokeWidth={isSelected ? "2" : "1"}
+               markerEnd="url(#arrowhead)" // Arrow points to Client (Center)
+            />
+         );
+      })}
+
+      {/* Client -> Subsidiaries (Center Down) */}
+      {subsidiaryPositions.map((pos, i) => {
+         const isSelected = selectedType === 'subsidiary' && selectedIndex === i;
+         return (
+            <line 
+               key={`line-sub-${i}`}
+               x1={cx} y1={cy} x2={pos.x} y2={pos.y}
+               stroke={isSelected ? "#10b981" : "#cbd5e1"}
+               strokeWidth={isSelected ? "2" : "1"}
+               markerEnd="url(#arrowhead)" // Arrow points to Subsidiary
+            />
+         );
+      })}
+
+      {/* --- Nodes --- */}
+
+      {/* Center Node (Client) */}
+      <g filter="url(#shadow)">
+        <rect x={cx - 60} y={cy - 25} width="120" height="50" rx="25" fill="white" stroke="#4f46e5" strokeWidth="3" />
+        <foreignObject x={cx - 55} y={cy - 20} width="110" height="40">
+           <div className="flex flex-col items-center justify-center h-full text-center">
+             <div className="text-[10px] font-bold text-slate-800 leading-tight line-clamp-2">{clientName}</div>
+           </div>
+        </foreignObject>
+      </g>
+
+      {/* Shareholder Nodes */}
+      {shareholders.map((s, i) => {
+         const pos = shareholderPositions[i];
+         const isSelected = selectedType === 'shareholder' && selectedIndex === i;
+         const isInst = s.type === 'institution';
+         
+         return (
+            <g 
+              key={`node-sh-${i}`} 
+              onClick={(e) => { e.stopPropagation(); onSelectShareholder(i); }} 
+              className="cursor-pointer transition-all hover:opacity-90"
+              filter="url(#shadow)"
+            >
+               <circle 
+                  cx={pos.x} cy={pos.y} r="30" 
+                  fill={isInst ? (isSelected ? '#e0f2fe' : '#f0f9ff') : (isSelected ? '#ffe4e6' : '#fff1f2')}
+                  stroke={isInst ? '#0ea5e9' : '#f43f5e'}
+                  strokeWidth={isSelected ? "3" : "1.5"}
+               />
+               <foreignObject x={pos.x - 28} y={pos.y - 28} width="56" height="56" className="pointer-events-none">
+                 <div className="flex flex-col items-center justify-center h-full">
+                    <div className="text-[9px] font-bold text-slate-700 text-center leading-tight line-clamp-2 w-full mb-0.5">
+                       {s.name}
+                    </div>
+                    <div className="text-[9px] text-slate-500 font-mono bg-white/50 px-1 rounded">
+                       {s.percentage}%
+                    </div>
+                 </div>
+               </foreignObject>
+            </g>
+         );
+      })}
+
+      {/* Subsidiary Nodes */}
+      {subsidiaries.map((s, i) => {
+         const pos = subsidiaryPositions[i];
+         const isSelected = selectedType === 'subsidiary' && selectedIndex === i;
+         
+         return (
+            <g 
+              key={`node-sub-${i}`} 
+              onClick={(e) => { e.stopPropagation(); onSelectSubsidiary(i); }} 
+              className="cursor-pointer transition-all hover:opacity-90"
+              filter="url(#shadow)"
+            >
+               <rect 
+                  x={pos.x - 40} y={pos.y - 20} width="80" height="40" rx="8"
+                  fill={isSelected ? '#d1fae5' : '#ecfdf5'}
+                  stroke="#10b981"
+                  strokeWidth={isSelected ? "2.5" : "1.5"}
+               />
+               <foreignObject x={pos.x - 38} y={pos.y - 18} width="76" height="36" className="pointer-events-none">
+                 <div className="flex flex-col items-center justify-center h-full">
+                    <div className="text-[9px] font-bold text-emerald-900 text-center leading-tight line-clamp-1 w-full">
+                       {s.name}
+                    </div>
+                    <div className="text-[8px] text-emerald-700 font-mono mt-0.5">
+                       持股 {s.percentage}%
+                    </div>
+                 </div>
+               </foreignObject>
+            </g>
+         );
+      })}
+
+      {/* Legends/Labels */}
+      <text x={20} y={30} className="text-xs fill-slate-400 font-bold uppercase">股东 (上游)</text>
+      <text x={20} y={height - 20} className="text-xs fill-slate-400 font-bold uppercase">对外投资 (下游)</text>
+
+      {/* Empty State Text */}
+      {shareholders.length === 0 && subsidiaries.length === 0 && (
+         <text x={cx} y={cy + 60} textAnchor="middle" className="text-sm fill-slate-400">
+           暂无股权数据
+         </text>
+      )}
+    </svg>
+  );
+};
+
 export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClients, fieldDefinitions = [], currentUser }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [activeTab, setActiveTab] = useState<'BASIC' | 'EQUITY' | 'CONTACTS'>('BASIC');
-  const [expandedField, setExpandedField] = useState<'financial' | 'supply' | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   
   // States within Modal
   const [isProfileLoading, setIsProfileLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [fullscreenSection, setFullscreenSection] = useState<'FINANCIAL' | 'SUPPLY' | null>(null);
   
   // Contact Editing State
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [tempContact, setTempContact] = useState<Partial<Contact>>({});
+
+  // Equity UI State
+  const [visualMode, setVisualMode] = useState<'MAP' | 'PIE'>('MAP');
+  
+  // Selection for editing
+  const [selectedEquityType, setSelectedEquityType] = useState<'shareholder' | 'subsidiary' | null>(null);
+  const [selectedEquityIndex, setSelectedEquityIndex] = useState<number | null>(null);
 
   const filteredClients = clients.filter(c => 
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -74,6 +270,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
     c.ownerName?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
+  const paginatedClients = filteredClients.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
   const handleGenerateProfile = async () => {
     if (!selectedClient) return;
     setIsProfileLoading(true);
@@ -81,10 +280,12 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
       const profile = await generateClientProfile(selectedClient.name, selectedClient.industry, selectedClient.region);
       setSelectedClient(prev => prev ? {
         ...prev,
-        equityStructure: profile.equity, // Now array
+        equityStructure: profile.equity, // Array of Shareholders
+        subsidiaries: profile.subsidiaries, // Array of Subsidiaries
         financialAnalysis: profile.financials,
         supplyChainInfo: profile.supplyChain,
       } : null);
+      setVisualMode('MAP'); // Switch to map view to see result
     } catch (e) {
       alert("生成画像失败，请检查控制台。");
     } finally {
@@ -101,6 +302,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
       region: "",
       contacts: [],
       equityStructure: [],
+      subsidiaries: [],
       financialAnalysis: "",
       supplyChainInfo: "",
       customFields: {},
@@ -130,26 +332,25 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
     setIsSaving(true);
     
     try {
-      // Ensure data integrity for Supabase
       const clientToSave: Client = {
         id: selectedClient.id,
         name: selectedClient.name,
         industry: selectedClient.industry || '',
-        status: selectedClient.status,
+        status: selectedClient.status || ClientStatus.Lead,
         region: selectedClient.region || '',
         contacts: selectedClient.contacts || [],
         customFields: selectedClient.customFields || {},
         ownerId: selectedClient.ownerId,
         ownerName: selectedClient.ownerName,
+        
         equityStructure: selectedClient.equityStructure || [],
+        subsidiaries: selectedClient.subsidiaries || [],
         financialAnalysis: selectedClient.financialAnalysis || '',
         supplyChainInfo: selectedClient.supplyChainInfo || ''
       };
 
-      // 1. Sync to Supabase
       await upsertClient(clientToSave);
       
-      // 2. Optimistic Update (or post-save update)
       setClients(prev => {
         const exists = prev.find(c => c.id === clientToSave.id);
         if (exists) return prev.map(c => c.id === clientToSave.id ? clientToSave : c);
@@ -158,20 +359,36 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
 
       setIsSaving(false);
       setSelectedClient(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to save client:", err);
-      alert("保存客户失败，请检查网络或配置。");
+      
+      if (err.message && err.message.startsWith("PARTIAL_SUCCESS:")) {
+         const msg = err.message.replace("PARTIAL_SUCCESS: ", "");
+         alert(`⚠️ ${msg}\n\n建议联系管理员更新数据库结构。`);
+         setIsSaving(false);
+         setSelectedClient(null);
+         
+         const clientToSave = selectedClient as Client; 
+         setClients(prev => {
+            const exists = prev.find(c => c.id === clientToSave.id);
+            if (exists) return prev.map(c => c.id === clientToSave.id ? clientToSave : c);
+            return [clientToSave, ...prev];
+         });
+         return;
+      }
+
+      alert(`保存失败: ${err.message || '请检查网络或配置'}`);
       setIsSaving(false);
     }
   };
 
-  const handleDeleteClient = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm("确定要删除此客户吗？此操作无法撤销。")) return;
+  const handleDeleteClient = async (id: string) => {
+    if (!confirm("确定要删除此客户吗？\n注意：如果数据库未配置级联删除，且该客户下有拜访记录，删除可能会失败。")) return;
     
     setClients(prev => prev.filter(c => c.id !== id));
-    await deleteClient(id);
     if (selectedClient?.id === id) setSelectedClient(null);
+
+    await deleteClient(id);
   };
 
   // --- Contact Handlers ---
@@ -214,554 +431,715 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   // --- Equity Handlers ---
   const handleAddShareholder = () => {
      if (!selectedClient) return;
-     const currentEquity = selectedClient.equityStructure || [];
+     const list = selectedClient.equityStructure || [];
+     const newIndex = list.length;
      setSelectedClient({
         ...selectedClient,
-        equityStructure: [...currentEquity, { name: '新股东', percentage: 0, type: 'individual' }]
+        equityStructure: [...list, { name: '新股东', percentage: 0, type: 'individual' }]
      });
+     setSelectedEquityType('shareholder');
+     setSelectedEquityIndex(newIndex);
   };
 
   const handleUpdateShareholder = (index: number, field: keyof Shareholder, value: any) => {
      if (!selectedClient || !selectedClient.equityStructure) return;
-     const newEquity = [...selectedClient.equityStructure];
-     newEquity[index] = { ...newEquity[index], [field]: value };
-     setSelectedClient({ ...selectedClient, equityStructure: newEquity });
+     const newList = [...selectedClient.equityStructure];
+     newList[index] = { ...newList[index], [field]: value };
+     setSelectedClient({ ...selectedClient, equityStructure: newList });
   };
 
   const handleDeleteShareholder = (index: number) => {
      if (!selectedClient || !selectedClient.equityStructure) return;
-     const newEquity = [...selectedClient.equityStructure];
-     newEquity.splice(index, 1);
-     setSelectedClient({ ...selectedClient, equityStructure: newEquity });
+     const newList = [...selectedClient.equityStructure];
+     newList.splice(index, 1);
+     setSelectedClient({ ...selectedClient, equityStructure: newList });
+     if (selectedEquityType === 'shareholder' && selectedEquityIndex === index) {
+       setSelectedEquityType(null);
+       setSelectedEquityIndex(null);
+     }
+  };
+
+  const handleAddSubsidiary = () => {
+     if (!selectedClient) return;
+     const list = selectedClient.subsidiaries || [];
+     const newIndex = list.length;
+     setSelectedClient({
+        ...selectedClient,
+        subsidiaries: [...list, { name: '新子公司', percentage: 100, industry: '未知' }]
+     });
+     setSelectedEquityType('subsidiary');
+     setSelectedEquityIndex(newIndex);
+  };
+
+  const handleUpdateSubsidiary = (index: number, field: keyof Subsidiary, value: any) => {
+     if (!selectedClient || !selectedClient.subsidiaries) return;
+     const newList = [...selectedClient.subsidiaries];
+     newList[index] = { ...newList[index], [field]: value };
+     setSelectedClient({ ...selectedClient, subsidiaries: newList });
   };
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
-          <input 
-            type="text" 
-            placeholder="搜索客户、行业或负责人..." 
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <button 
-          onClick={handleAddMockClient}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl flex items-center font-medium shadow-sm transition-colors"
-        >
-          <Plus className="w-5 h-5 mr-2" />
-          添加客户
-        </button>
-      </div>
-
-      {/* Client List (Table View) */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden flex-1 overflow-y-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
-            <tr>
-              <th className="px-6 py-4 font-semibold text-slate-600">客户名称</th>
-              <th className="px-6 py-4 font-semibold text-slate-600">行业</th>
-              <th className="px-6 py-4 font-semibold text-slate-600">区域</th>
-              <th className="px-6 py-4 font-semibold text-slate-600">状态</th>
-              <th className="px-6 py-4 font-semibold text-slate-600">负责人</th>
-              <th className="px-6 py-4 font-semibold text-slate-600 text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {filteredClients.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-10 text-center text-slate-400">
-                  没有找到匹配的客户
-                </td>
-              </tr>
-            ) : (
-              filteredClients.map(client => {
-                const canDelete = currentUser?.role === '管理员' || (client.ownerId && currentUser?.id === client.ownerId);
-                return (
-                  <tr 
-                    key={client.id} 
-                    onClick={() => { setSelectedClient(client); setActiveTab('BASIC'); }}
-                    className="hover:bg-slate-50 transition-colors cursor-pointer group"
-                  >
-                    <td className="px-6 py-4">
-                      <div className="flex items-center">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs mr-3 flex-shrink-0 ${
-                          client.status === ClientStatus.Active ? 'bg-emerald-500' :
-                          client.status === ClientStatus.Lead ? 'bg-blue-500' : 'bg-slate-400'
-                        }`}>
-                          {client.name.charAt(0)}
-                        </div>
-                        <span className="font-medium text-slate-800">{client.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-slate-600">{client.industry}</td>
-                    <td className="px-6 py-4 text-slate-600 flex items-center">
-                      {client.region ? (
-                         <><MapPin className="w-3 h-3 mr-1 text-slate-400" /> {client.region}</>
-                      ) : '-'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        client.status === ClientStatus.Active ? 'bg-emerald-50 text-emerald-600' :
-                        client.status === ClientStatus.Lead ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'
-                      }`}>
-                        {client.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-slate-600">
-                      <div className="flex items-center">
-                        <UserIcon className="w-3 h-3 mr-1 text-slate-400" />
-                        {client.ownerName || '未分配'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
-                      <button 
-                        onClick={() => { setSelectedClient(client); setActiveTab('BASIC'); }}
-                        className="text-indigo-600 hover:text-indigo-800 mx-2 p-1 hover:bg-indigo-50 rounded"
-                        title="编辑"
-                      >
-                        <Edit2 className="w-4 h-4"/>
-                      </button>
-                      {canDelete && (
-                        <button 
-                          onClick={(e) => handleDeleteClient(client.id, e)} 
-                          className="text-red-500 hover:text-red-700 mx-2 p-1 hover:bg-red-50 rounded"
-                          title="删除"
-                        >
-                          <Trash2 className="w-4 h-4"/>
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Edit Detail Modal */}
-      {selectedClient && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex justify-end">
-          <div className="w-full md:w-[700px] bg-white h-full shadow-2xl overflow-hidden animate-slide-in-right flex flex-col">
-            
-            {/* Modal Header */}
-            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 bg-white z-10">
-              <div>
-                <h2 className="text-xl font-bold text-slate-800">
-                  {selectedClient.id && filteredClients.find(c => c.id === selectedClient.id) ? '编辑客户' : '新增客户'}
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">{selectedClient.name || '未命名'}</p>
-              </div>
-              <div className="flex space-x-2">
-                <button 
-                  onClick={handleSaveClient}
-                  disabled={isSaving}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center text-sm font-medium disabled:opacity-70"
-                >
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : <Save className="w-4 h-4 mr-2" />}
-                  保存
-                </button>
-                <button 
-                  onClick={() => setSelectedClient(null)}
-                  className="p-2 hover:bg-slate-100 rounded-lg text-slate-500"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
+       {/* Header */}
+       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+         <div className="flex items-center">
+            <Users className="w-6 h-6 mr-3 text-indigo-600" />
+            <h2 className="text-2xl font-bold text-slate-800">客户管理</h2>
+         </div>
+         <div className="flex gap-4">
+            <div className="relative">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+               <input 
+                  type="text" 
+                  placeholder="搜索客户..." 
+                  className="pl-9 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-64"
+                  value={searchTerm}
+                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+               />
             </div>
+            <button 
+               onClick={handleAddMockClient}
+               className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl flex items-center font-medium shadow-sm text-sm"
+            >
+               <Plus className="w-4 h-4 mr-2" />
+               新建客户
+            </button>
+         </div>
+       </div>
 
-            {/* Tabs */}
-            <div className="px-6 pt-2 border-b border-slate-100 flex space-x-6 bg-white">
-               <button 
-                  onClick={() => setActiveTab('BASIC')}
-                  className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'BASIC' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-               >
-                 基础信息
-               </button>
-               <button 
-                  onClick={() => setActiveTab('EQUITY')}
-                  className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'EQUITY' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-               >
-                 股权结构
-               </button>
-               <button 
-                  onClick={() => setActiveTab('CONTACTS')}
-                  className={`pb-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'CONTACTS' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
-               >
-                 联系人 ({selectedClient.contacts.length})
-               </button>
-            </div>
-
-            {/* Scrollable Content */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
-               
-               {/* --- BASIC INFO TAB --- */}
-               {activeTab === 'BASIC' && (
-                  <div className="space-y-6">
-                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                      <h3 className="text-sm font-bold text-slate-800 flex items-center mb-2">
-                        <Building className="w-4 h-4 mr-2 text-indigo-600" /> 基本资料
-                      </h3>
-                      
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">客户名称 <span className="text-red-500">*</span></label>
-                        <input 
-                          type="text"
-                          className="w-full p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                          value={selectedClient.name}
-                          onChange={(e) => setSelectedClient(prev => prev ? {...prev, name: e.target.value} : null)}
-                          placeholder="输入公司全称"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">所属行业 (国标一级)</label>
-                          <select
-                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
-                            value={selectedClient.industry}
-                            onChange={(e) => setSelectedClient(prev => prev ? {...prev, industry: e.target.value} : null)}
-                          >
-                            <option value="">请选择行业</option>
-                            {NATIONAL_STANDARD_INDUSTRIES.map(ind => (
-                              <option key={ind} value={ind}>{ind}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">客户状态</label>
-                          <select
-                            className="w-full p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
-                            value={selectedClient.status}
-                            onChange={(e) => setSelectedClient(prev => prev ? {...prev, status: e.target.value as ClientStatus} : null)}
-                          >
-                            {Object.values(ClientStatus).map(status => (
-                              <option key={status} value={status}>{status}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">所在区域</label>
-                        <div className="relative">
-                          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                          <input 
-                            type="text"
-                            className="w-full pl-9 p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                            value={selectedClient.region}
-                            onChange={(e) => setSelectedClient(prev => prev ? {...prev, region: e.target.value} : null)}
-                            placeholder="例如：北京, 海淀区"
-                          />
-                        </div>
-                      </div>
-                      
-                      {/* Owner Field in Edit Mode */}
-                      <div>
-                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">负责人</label>
-                        <div className="relative">
-                           <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                           <input 
-                              type="text"
-                              className="w-full pl-9 p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50 text-slate-500"
-                              value={selectedClient.ownerName || '未分配'}
-                              readOnly
-                              title="负责人由创建人自动分配，暂不支持修改"
-                           />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Extended Fields */}
-                    {fieldDefinitions.length > 0 && (
-                       <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-4 shadow-sm">
-                          <h3 className="text-sm font-bold text-slate-800 flex items-center mb-2">
-                            <Briefcase className="w-4 h-4 mr-2 text-indigo-600" /> 扩展信息
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {fieldDefinitions.map(field => (
-                              <div key={field.id}>
-                                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">{field.label}</label>
-                                {field.type === 'select' ? (
-                                  <select
-                                    className="w-full p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    value={selectedClient.customFields?.[field.key] || ''}
-                                    onChange={(e) => handleUpdateCustomField(field.key, e.target.value)}
-                                  >
-                                    <option value="">请选择</option>
-                                    {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                  </select>
-                                ) : (
-                                  <input 
-                                    type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-                                    className="w-full p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                    value={selectedClient.customFields?.[field.key] || ''}
-                                    onChange={(e) => handleUpdateCustomField(field.key, e.target.value)}
-                                  />
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                       </div>
-                    )}
-                    
-                    {/* Financial & Supply Chain (Text only) with Expandable View */}
-                    <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-4 shadow-sm">
-                      <div className="flex justify-between items-center">
-                         <h3 className="text-sm font-bold text-slate-800 flex items-center mb-2">
-                           <BarChart2 className="w-4 h-4 mr-2 text-indigo-600" /> AI 经营分析
-                         </h3>
-                         <button 
-                            onClick={handleGenerateProfile}
-                            disabled={isProfileLoading || !selectedClient.industry || !selectedClient.region}
-                            className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-md hover:bg-indigo-100 disabled:opacity-50"
+       {/* Client Table List View */}
+       <div className="flex-1 overflow-hidden bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col">
+          <div className="flex-1 overflow-y-auto">
+             <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
+                   <tr>
+                      <th className="px-6 py-4 font-semibold text-slate-600">客户名称</th>
+                      <th className="px-6 py-4 font-semibold text-slate-600">行业/地区</th>
+                      <th className="px-6 py-4 font-semibold text-slate-600">主要联系人</th>
+                      <th className="px-6 py-4 font-semibold text-slate-600">状态</th>
+                      <th className="px-6 py-4 font-semibold text-slate-600">负责人</th>
+                      <th className="px-6 py-4 font-semibold text-slate-600 text-right">操作</th>
+                   </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                   {paginatedClients.map(client => {
+                      const firstContact = client.contacts && client.contacts.length > 0 ? client.contacts[0] : null;
+                      return (
+                         <tr 
+                           key={client.id} 
+                           onClick={() => { setSelectedClient(client); setActiveTab('BASIC'); }}
+                           className="hover:bg-slate-50 transition-colors cursor-pointer group"
                          >
-                            {isProfileLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'AI 更新画像'}
-                         </button>
-                      </div>
-                      <div className="space-y-3">
-                         {/* Financial Analysis */}
-                         <div className={`${expandedField === 'financial' ? 'fixed inset-0 z-50 bg-white p-6 flex flex-col' : 'relative'}`}>
-                            <div className="flex justify-between items-center mb-1">
-                                <label className="block text-xs font-semibold text-slate-500 uppercase">财务分析</label>
-                                <button 
-                                  onClick={() => setExpandedField(expandedField === 'financial' ? null : 'financial')}
-                                  className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-100"
-                                  title={expandedField === 'financial' ? "最小化" : "全屏编辑"}
-                                >
-                                   {expandedField === 'financial' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-3 h-3"/>}
-                                </button>
-                            </div>
-                            <textarea
-                              className={`w-full p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 ${expandedField === 'financial' ? 'flex-1 text-base' : 'h-20'}`}
-                              value={selectedClient.financialAnalysis || ''}
-                              readOnly={false} // Allow editing
-                              onChange={(e) => setSelectedClient(prev => prev ? {...prev, financialAnalysis: e.target.value} : null)}
-                              placeholder="点击“AI 更新画像”自动生成，或手动输入..."
-                            />
-                         </div>
-
-                         {/* Supply Chain Info */}
-                         <div className={`${expandedField === 'supply' ? 'fixed inset-0 z-50 bg-white p-6 flex flex-col' : 'relative'}`}>
-                            <div className="flex justify-between items-center mb-1">
-                                <label className="block text-xs font-semibold text-slate-500 uppercase">供应链信息</label>
-                                <button 
-                                  onClick={() => setExpandedField(expandedField === 'supply' ? null : 'supply')}
-                                  className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-100"
-                                  title={expandedField === 'supply' ? "最小化" : "全屏编辑"}
-                                >
-                                   {expandedField === 'supply' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-3 h-3"/>}
-                                </button>
-                            </div>
-                            <textarea
-                              className={`w-full p-2.5 rounded-lg border border-slate-200 bg-slate-50 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 ${expandedField === 'supply' ? 'flex-1 text-base' : 'h-20'}`}
-                              value={selectedClient.supplyChainInfo || ''}
-                              readOnly={false}
-                              onChange={(e) => setSelectedClient(prev => prev ? {...prev, supplyChainInfo: e.target.value} : null)}
-                              placeholder="点击“AI 更新画像”自动生成，或手动输入..."
-                            />
-                         </div>
-                      </div>
-                    </div>
-                  </div>
-               )}
-
-               {/* --- EQUITY STRUCTURE TAB --- */}
-               {activeTab === 'EQUITY' && (
-                  <div className="space-y-6">
-                     <div className="flex justify-between items-center bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-                        <div>
-                          <h3 className="text-sm font-bold text-indigo-900">股权结构图谱</h3>
-                          <p className="text-xs text-indigo-600 mt-1">AI 自动生成或手动维护的股东信息</p>
-                        </div>
-                        <button 
-                           onClick={handleGenerateProfile}
-                           disabled={isProfileLoading}
-                           className="text-xs bg-white border border-indigo-200 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-50 disabled:opacity-50 flex items-center"
-                        >
-                           {isProfileLoading ? <Loader2 className="w-3 h-3 animate-spin mr-1"/> : <PieIcon className="w-3 h-3 mr-1"/>}
-                           AI 智能获取
-                        </button>
-                     </div>
-
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Visualization */}
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm h-64 flex flex-col items-center justify-center">
-                           {!selectedClient.equityStructure || selectedClient.equityStructure.length === 0 ? (
-                              <div className="text-center text-slate-400">
-                                 <PieIcon className="w-10 h-10 mx-auto mb-2 opacity-20" />
-                                 <p className="text-xs">暂无数据</p>
-                              </div>
-                           ) : (
-                             <ResponsiveContainer width="100%" height="100%">
-                               <PieChart>
-                                 <Pie
-                                   data={selectedClient.equityStructure}
-                                   cx="50%"
-                                   cy="50%"
-                                   innerRadius={60}
-                                   outerRadius={80}
-                                   paddingAngle={5}
-                                   dataKey="percentage"
-                                 >
-                                   {selectedClient.equityStructure.map((entry, index) => (
-                                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                   ))}
-                                 </Pie>
-                                 <RechartsTooltip />
-                                 <Legend verticalAlign="bottom" height={36}/>
-                               </PieChart>
-                             </ResponsiveContainer>
-                           )}
-                        </div>
-                        
-                        {/* Edit List */}
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-                           <div className="flex justify-between items-center mb-3">
-                              <h4 className="text-sm font-bold text-slate-700">股东列表</h4>
-                              <button onClick={handleAddShareholder} className="text-xs text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded flex items-center">
-                                 <Plus className="w-3 h-3 mr-1" /> 添加
-                              </button>
-                           </div>
-                           <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                              {(!selectedClient.equityStructure || selectedClient.equityStructure.length === 0) && (
-                                 <p className="text-xs text-slate-400 text-center py-4">请添加股东或使用 AI 获取</p>
-                              )}
-                              {selectedClient.equityStructure?.map((shareholder, idx) => (
-                                 <div key={idx} className="flex items-center gap-2 text-sm">
-                                    <input 
-                                       className="flex-1 border border-slate-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                                       value={shareholder.name}
-                                       onChange={(e) => handleUpdateShareholder(idx, 'name', e.target.value)}
-                                       placeholder="股东名称"
-                                    />
-                                    <div className="relative w-16">
-                                       <input 
-                                          type="number"
-                                          className="w-full border border-slate-200 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                                          value={shareholder.percentage}
-                                          onChange={(e) => handleUpdateShareholder(idx, 'percentage', parseFloat(e.target.value))}
-                                       />
-                                       <span className="absolute right-1 top-1 text-xs text-slate-400">%</span>
-                                    </div>
-                                    <button onClick={() => handleDeleteShareholder(idx)} className="text-slate-400 hover:text-red-500">
-                                       <X className="w-4 h-4" />
-                                    </button>
-                                 </div>
-                              ))}
-                           </div>
-                        </div>
-                     </div>
-                  </div>
-               )}
-
-               {/* --- CONTACTS TAB --- */}
-               {activeTab === 'CONTACTS' && (
-                  <div className="space-y-4">
-                     {/* List */}
-                     {selectedClient.contacts.map(contact => (
-                        <div key={contact.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex justify-between items-start group">
-                           <div className="flex items-start">
-                              <div className="w-10 h-10 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 font-bold mr-3">
-                                 {contact.name.charAt(0)}
-                              </div>
-                              <div>
-                                 <h4 className="font-bold text-slate-800">{contact.name}</h4>
-                                 <p className="text-xs text-slate-500 mb-1">{contact.role}</p>
-                                 <div className="flex flex-col space-y-1">
-                                    {contact.email && <a href={`mailto:${contact.email}`} className="text-xs text-slate-600 hover:text-indigo-600 flex items-center"><Mail className="w-3 h-3 mr-1.5"/> {contact.email}</a>}
-                                    {contact.phone && <a href={`tel:${contact.phone}`} className="text-xs text-slate-600 hover:text-indigo-600 flex items-center"><Phone className="w-3 h-3 mr-1.5"/> {contact.phone}</a>}
-                                 </div>
-                              </div>
-                           </div>
-                           <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => handleEditContact(contact)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded">
-                                 <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => handleDeleteContact(contact.id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded">
-                                 <Trash2 className="w-4 h-4" />
-                              </button>
-                           </div>
-                        </div>
-                     ))}
-                     
-                     {/* Add Button */}
-                     <button 
-                        onClick={handleAddContact}
-                        className="w-full py-3 border-2 border-dashed border-slate-200 rounded-xl text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-colors flex items-center justify-center font-medium text-sm"
-                     >
-                        <Plus className="w-4 h-4 mr-2" /> 添加联系人
-                     </button>
-                     
-                     {/* Edit Modal (Nested) */}
-                     {editingContactId && (
-                        <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center backdrop-blur-sm">
-                           <div className="bg-white rounded-2xl p-6 w-[400px] shadow-xl animate-scale-in">
-                              <h3 className="text-lg font-bold text-slate-800 mb-4">{editingContactId === 'NEW' ? '新增联系人' : '编辑联系人'}</h3>
-                              <div className="space-y-3">
-                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">姓名</label>
-                                    <input 
-                                       className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                       value={tempContact.name || ''}
-                                       onChange={(e) => setTempContact({...tempContact, name: e.target.value})}
-                                    />
-                                 </div>
-                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">职位</label>
-                                    <input 
-                                       className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                       value={tempContact.role || ''}
-                                       onChange={(e) => setTempContact({...tempContact, role: e.target.value})}
-                                    />
-                                 </div>
-                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">邮箱</label>
-                                    <input 
-                                       className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                       value={tempContact.email || ''}
-                                       onChange={(e) => setTempContact({...tempContact, email: e.target.value})}
-                                    />
-                                 </div>
-                                 <div>
-                                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">电话</label>
-                                    <input 
-                                       className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                                       value={tempContact.phone || ''}
-                                       onChange={(e) => setTempContact({...tempContact, phone: e.target.value})}
-                                    />
-                                 </div>
-                              </div>
-                              <div className="flex gap-3 mt-6">
-                                 <button 
-                                    onClick={() => setEditingContactId(null)}
-                                    className="flex-1 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 font-medium"
-                                 >
-                                    取消
-                                 </button>
-                                 <button 
-                                    onClick={handleSaveContact}
-                                    className="flex-1 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-medium"
-                                 >
-                                    保存
-                                 </button>
-                              </div>
-                           </div>
-                        </div>
-                     )}
-                  </div>
-               )}
-
-            </div>
+                            <td className="px-6 py-4">
+                               <div className="flex items-center">
+                                  <div className={`w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center text-white font-bold text-sm mr-3 ${
+                                     client.status === ClientStatus.Active ? 'bg-indigo-500' : client.status === ClientStatus.Churned ? 'bg-slate-400' : 'bg-blue-400'
+                                  }`}>
+                                     {client.name.substring(0, 1)}
+                                  </div>
+                                  <div className="font-bold text-slate-800 line-clamp-1">{client.name}</div>
+                               </div>
+                            </td>
+                            <td className="px-6 py-4">
+                               <div className="flex flex-col">
+                                  <span className="text-slate-700 flex items-center text-xs mb-1">
+                                    <Briefcase className="w-3 h-3 mr-1 text-slate-400"/> {client.industry}
+                                  </span>
+                                  <span className="text-slate-500 flex items-center text-xs">
+                                    <MapPin className="w-3 h-3 mr-1 text-slate-400"/> {client.region || '未填写'}
+                                  </span>
+                               </div>
+                            </td>
+                            <td className="px-6 py-4">
+                               {firstContact ? (
+                                  <div className="text-xs">
+                                     <div className="font-medium text-slate-700">{firstContact.name} <span className="text-slate-400">({firstContact.role})</span></div>
+                                     <div className="text-slate-500 mt-0.5">{firstContact.phone}</div>
+                                  </div>
+                               ) : (
+                                  <span className="text-xs text-slate-400 italic">无联系人</span>
+                               )}
+                            </td>
+                            <td className="px-6 py-4">
+                               <span className={`text-xs px-2 py-1 rounded-full border ${
+                                  client.status === ClientStatus.Active ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
+                                  client.status === ClientStatus.Churned ? 'bg-slate-50 text-slate-600 border-slate-100' : 'bg-blue-50 text-blue-700 border-blue-100'
+                               }`}>
+                                  {client.status}
+                               </span>
+                            </td>
+                            <td className="px-6 py-4">
+                               <div className="flex items-center text-xs text-slate-600">
+                                  <UserIcon className="w-3 h-3 mr-1 text-slate-400"/>
+                                  {client.ownerName || 'Unknown'}
+                               </div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                               <button 
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteClient(client.id); }}
+                                  className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                  title="删除客户"
+                               >
+                                  <Trash2 className="w-4 h-4" />
+                               </button>
+                            </td>
+                         </tr>
+                      );
+                   })}
+                   {paginatedClients.length === 0 && (
+                      <tr>
+                         <td colSpan={6} className="px-6 py-20 text-center text-slate-400">
+                            <Users className="w-12 h-12 mx-auto mb-3 opacity-10" />
+                            <p>未找到相关客户</p>
+                         </td>
+                      </tr>
+                   )}
+                </tbody>
+             </table>
           </div>
-        </div>
-      )}
+          
+          {/* Pagination Controls */}
+          {filteredClients.length > 0 && (
+            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+               <span className="text-xs text-slate-500">
+                  显示 {Math.min(filteredClients.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)} - {Math.min(filteredClients.length, currentPage * ITEMS_PER_PAGE)} 共 {filteredClients.length} 条
+               </span>
+               <div className="flex space-x-2">
+                  <button 
+                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                     disabled={currentPage === 1}
+                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                     <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs flex items-center px-2 font-medium text-slate-600">
+                     {currentPage} / {totalPages}
+                  </span>
+                  <button 
+                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                     disabled={currentPage === totalPages}
+                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                     <ChevronRight className="w-4 h-4" />
+                  </button>
+               </div>
+            </div>
+          )}
+       </div>
+
+       {/* Detail Modal */}
+       {selectedClient && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+             <div className="bg-white rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-scale-in">
+                {/* Modal Header */}
+                <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
+                   <div className="flex items-center space-x-4">
+                      <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm">
+                         {selectedClient.name.substring(0, 1)}
+                      </div>
+                      <div>
+                         <input 
+                            className="font-bold text-lg text-slate-800 bg-transparent border-none focus:ring-0 p-0 w-64 focus:bg-white focus:px-2 rounded transition-all"
+                            value={selectedClient.name}
+                            onChange={(e) => setSelectedClient({...selectedClient, name: e.target.value})}
+                         />
+                         <p className="text-xs text-slate-500">ID: {selectedClient.id}</p>
+                      </div>
+                   </div>
+                   <div className="flex items-center space-x-3">
+                      <div className="flex bg-slate-200 p-1 rounded-lg">
+                         {(['BASIC', 'EQUITY', 'CONTACTS'] as const).map(tab => (
+                            <button
+                               key={tab}
+                               onClick={() => setActiveTab(tab)}
+                               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === tab ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                               {tab === 'BASIC' && '基本信息'}
+                               {tab === 'EQUITY' && '股权画像'}
+                               {tab === 'CONTACTS' && '联系人'}
+                            </button>
+                         ))}
+                      </div>
+                      <div className="h-6 w-px bg-slate-300 mx-2"></div>
+                      <button 
+                         onClick={handleSaveClient} 
+                         disabled={isSaving}
+                         className="flex items-center bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-70"
+                      >
+                         {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Save className="w-4 h-4 mr-2"/>}
+                         保存
+                      </button>
+                      <button onClick={() => setSelectedClient(null)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-lg">
+                         <X className="w-5 h-5" />
+                      </button>
+                   </div>
+                </div>
+
+                {/* Modal Content */}
+                <div className="flex-1 overflow-hidden bg-slate-50 relative">
+                   {activeTab === 'BASIC' && (
+                      <div className="h-full overflow-y-auto p-6">
+                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            {/* Basic Fields */}
+                            <div className="space-y-4 lg:col-span-1">
+                               <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
+                                  <h4 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider">基础资料</h4>
+                                  <div className="space-y-4">
+                                     <div>
+                                        <label className="block text-xs font-semibold text-slate-500 mb-1">所属行业</label>
+                                        <select 
+                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                           value={selectedClient.industry}
+                                           onChange={e => setSelectedClient({...selectedClient, industry: e.target.value})}
+                                        >
+                                           {NATIONAL_STANDARD_INDUSTRIES.map(ind => (
+                                              <option key={ind} value={ind}>{ind}</option>
+                                           ))}
+                                        </select>
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-slate-500 mb-1">所在地区</label>
+                                        <input 
+                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                           value={selectedClient.region}
+                                           onChange={e => setSelectedClient({...selectedClient, region: e.target.value})}
+                                           placeholder="例如：上海, 浦东新区"
+                                        />
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-slate-500 mb-1">客户状态</label>
+                                        <select 
+                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                           value={selectedClient.status}
+                                           onChange={e => setSelectedClient({...selectedClient, status: e.target.value as ClientStatus})}
+                                        >
+                                           {Object.values(ClientStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-slate-500 mb-1">负责人</label>
+                                        <div className="flex items-center p-2 bg-slate-50 rounded-lg border border-slate-200 text-sm text-slate-600">
+                                            <UserIcon className="w-4 h-4 mr-2" />
+                                            {selectedClient.ownerName || 'Unknown'}
+                                        </div>
+                                     </div>
+                                  </div>
+                               </div>
+
+                               {/* Custom Fields */}
+                               {fieldDefinitions.length > 0 && (
+                                  <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
+                                     <h4 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider">自定义信息</h4>
+                                     <div className="space-y-3">
+                                        {fieldDefinitions.map(field => (
+                                           <div key={field.id}>
+                                              <label className="block text-xs font-semibold text-slate-500 mb-1">{field.label}</label>
+                                              {field.type === 'select' ? (
+                                                 <select
+                                                    className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                                    value={selectedClient.customFields?.[field.key] || ''}
+                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value)}
+                                                 >
+                                                    <option value="">请选择</option>
+                                                    {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                                 </select>
+                                              ) : (
+                                                 <input 
+                                                    type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+                                                    className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                                    value={selectedClient.customFields?.[field.key] || ''}
+                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value)}
+                                                 />
+                                              )}
+                                           </div>
+                                        ))}
+                                     </div>
+                                  </div>
+                               )}
+                            </div>
+
+                            {/* AI Analysis Section */}
+                            <div className="lg:col-span-2 space-y-4">
+                               <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm h-full flex flex-col">
+                                  <div className="flex justify-between items-center mb-4">
+                                     <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center">
+                                        <PieIcon className="w-4 h-4 mr-2 text-indigo-600" />
+                                        企业画像与财务分析
+                                     </h4>
+                                     <button 
+                                        onClick={handleGenerateProfile}
+                                        disabled={isProfileLoading}
+                                        className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-100 flex items-center font-medium transition-colors"
+                                     >
+                                        {isProfileLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin"/> : <RefreshCw className="w-3 h-3 mr-1"/>}
+                                        AI 生成画像
+                                     </button>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-1 gap-4 flex-1">
+                                     <div className={`relative transition-all ${fullscreenSection === 'FINANCIAL' ? 'fixed inset-4 z-50 bg-white shadow-2xl p-6 rounded-xl border border-slate-200' : 'bg-slate-50 p-4 rounded-xl border border-slate-100'}`}>
+                                        <div className="flex justify-between items-center mb-2">
+                                           <h5 className="font-bold text-slate-700 text-sm">财务分析</h5>
+                                           <button onClick={() => setFullscreenSection(fullscreenSection === 'FINANCIAL' ? null : 'FINANCIAL')}>
+                                              {fullscreenSection === 'FINANCIAL' ? <Minimize2 className="w-4 h-4 text-slate-400"/> : <Maximize2 className="w-4 h-4 text-slate-400"/>}
+                                           </button>
+                                        </div>
+                                        <textarea 
+                                           className="w-full h-[calc(100%-2rem)] bg-transparent resize-none focus:outline-none text-sm text-slate-600 leading-relaxed"
+                                           value={selectedClient.financialAnalysis || ''}
+                                           onChange={e => setSelectedClient({...selectedClient, financialAnalysis: e.target.value})}
+                                           placeholder="点击生成画像获取财务分析..."
+                                        />
+                                     </div>
+                                     <div className={`relative transition-all ${fullscreenSection === 'SUPPLY' ? 'fixed inset-4 z-50 bg-white shadow-2xl p-6 rounded-xl border border-slate-200' : 'bg-slate-50 p-4 rounded-xl border border-slate-100'}`}>
+                                        <div className="flex justify-between items-center mb-2">
+                                           <h5 className="font-bold text-slate-700 text-sm">供应链信息</h5>
+                                           <button onClick={() => setFullscreenSection(fullscreenSection === 'SUPPLY' ? null : 'SUPPLY')}>
+                                              {fullscreenSection === 'SUPPLY' ? <Minimize2 className="w-4 h-4 text-slate-400"/> : <Maximize2 className="w-4 h-4 text-slate-400"/>}
+                                           </button>
+                                        </div>
+                                        <textarea 
+                                           className="w-full h-[calc(100%-2rem)] bg-transparent resize-none focus:outline-none text-sm text-slate-600 leading-relaxed"
+                                           value={selectedClient.supplyChainInfo || ''}
+                                           onChange={e => setSelectedClient({...selectedClient, supplyChainInfo: e.target.value})}
+                                           placeholder="点击生成画像获取供应链信息..."
+                                        />
+                                     </div>
+                                  </div>
+                               </div>
+                            </div>
+                         </div>
+                      </div>
+                   )}
+
+                   {/* Equity & Contacts tabs preserved as is ... */}
+                   {activeTab === 'EQUITY' && (
+                      <div className="h-full flex flex-col md:flex-row">
+                         {/* Visualization Panel */}
+                         <div className={`relative transition-all duration-300 ${selectedEquityType ? 'w-full md:w-2/3' : 'w-full'} h-full bg-slate-100 flex items-center justify-center overflow-hidden`}>
+                             <div className="absolute top-4 left-4 z-10 flex space-x-2 bg-white/80 backdrop-blur p-1 rounded-lg border border-slate-200">
+                                <button 
+                                   onClick={() => setVisualMode('MAP')}
+                                   className={`p-1.5 rounded ${visualMode === 'MAP' ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                   title="关系图谱"
+                                >
+                                   <LayoutGrid className="w-4 h-4" />
+                                </button>
+                                <button 
+                                   onClick={() => setVisualMode('PIE')}
+                                   className={`p-1.5 rounded ${visualMode === 'PIE' ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                   title="占比图表"
+                                >
+                                   <PieIcon className="w-4 h-4" />
+                                </button>
+                             </div>
+                             
+                             {visualMode === 'MAP' && (
+                                <div className="absolute bottom-4 left-4 z-10 bg-white/80 backdrop-blur p-2 rounded-lg border border-slate-200 text-xs">
+                                   <div className="flex items-center mb-1"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-400 mr-2"></span>个人股东</div>
+                                   <div className="flex items-center mb-1"><span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-400 mr-2"></span>机构股东</div>
+                                   <div className="flex items-center"><span className="w-3 h-2 bg-emerald-100 border border-emerald-400 mr-2"></span>对外投资</div>
+                                </div>
+                             )}
+
+                             {visualMode === 'MAP' ? (
+                                <EquityStructureMap 
+                                   clientName={selectedClient.name} 
+                                   shareholders={selectedClient.equityStructure || []} 
+                                   subsidiaries={selectedClient.subsidiaries || []}
+                                   onSelectShareholder={(i) => { setSelectedEquityType('shareholder'); setSelectedEquityIndex(i); }}
+                                   onSelectSubsidiary={(i) => { setSelectedEquityType('subsidiary'); setSelectedEquityIndex(i); }}
+                                   selectedType={selectedEquityType}
+                                   selectedIndex={selectedEquityIndex}
+                                />
+                             ) : (
+                                <div className="w-full h-full flex flex-col md:flex-row p-4">
+                                   <div className="flex-1 h-1/2 md:h-full">
+                                      <h4 className="text-center font-bold text-slate-700 mb-2">股东结构</h4>
+                                      <ResponsiveContainer width="100%" height="90%">
+                                         <PieChart>
+                                            <Pie
+                                               data={selectedClient.equityStructure}
+                                               dataKey="percentage"
+                                               nameKey="name"
+                                               cx="50%" cy="50%"
+                                               outerRadius={80}
+                                               fill="#8884d8"
+                                               label
+                                            >
+                                               {(selectedClient.equityStructure || []).map((entry, index) => (
+                                                  <Cell key={`cell-${index}`} fill={entry.type === 'institution' ? '#3b82f6' : '#f43f5e'} />
+                                               ))}
+                                            </Pie>
+                                            <RechartsTooltip />
+                                            <Legend verticalAlign="bottom" height={36}/>
+                                         </PieChart>
+                                      </ResponsiveContainer>
+                                   </div>
+                                   <div className="flex-1 h-1/2 md:h-full border-t md:border-t-0 md:border-l border-slate-200">
+                                      <h4 className="text-center font-bold text-slate-700 mb-2 mt-4 md:mt-0">对外投资</h4>
+                                      <ResponsiveContainer width="100%" height="90%">
+                                         <PieChart>
+                                            <Pie
+                                               data={selectedClient.subsidiaries}
+                                               dataKey="percentage"
+                                               nameKey="name"
+                                               cx="50%" cy="50%"
+                                               innerRadius={40}
+                                               outerRadius={80}
+                                               fill="#10b981"
+                                               label
+                                            >
+                                               {(selectedClient.subsidiaries || []).map((entry, index) => (
+                                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                               ))}
+                                            </Pie>
+                                            <RechartsTooltip />
+                                            <Legend verticalAlign="bottom" height={36}/>
+                                         </PieChart>
+                                      </ResponsiveContainer>
+                                   </div>
+                                </div>
+                             )}
+                         </div>
+
+                         {/* Editor Panel */}
+                         <div className={`bg-white border-l border-slate-200 transition-all duration-300 flex flex-col ${selectedEquityType ? 'w-full md:w-1/3' : 'w-0 hidden'}`}>
+                             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                                <h3 className="font-bold text-slate-800">
+                                   {selectedEquityType === 'shareholder' ? '编辑股东信息' : '编辑子公司信息'}
+                                </h3>
+                                <button onClick={() => { setSelectedEquityType(null); setSelectedEquityIndex(null); }} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4"/></button>
+                             </div>
+                             
+                             <div className="p-4 space-y-4 overflow-y-auto flex-1">
+                                {selectedEquityType === 'shareholder' && selectedEquityIndex !== null && selectedClient.equityStructure && (
+                                   <>
+                                      <div>
+                                         <label className="block text-xs font-semibold text-slate-500 mb-1">股东名称</label>
+                                         <input 
+                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            value={selectedClient.equityStructure[selectedEquityIndex].name}
+                                            onChange={(e) => handleUpdateShareholder(selectedEquityIndex, 'name', e.target.value)}
+                                         />
+                                      </div>
+                                      <div>
+                                         <label className="block text-xs font-semibold text-slate-500 mb-1">持股比例 (%)</label>
+                                         <input 
+                                            type="number"
+                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            value={selectedClient.equityStructure[selectedEquityIndex].percentage}
+                                            onChange={(e) => handleUpdateShareholder(selectedEquityIndex, 'percentage', parseFloat(e.target.value) || 0)}
+                                         />
+                                      </div>
+                                      <div>
+                                         <label className="block text-xs font-semibold text-slate-500 mb-1">类型</label>
+                                         <div className="flex space-x-2">
+                                            <button 
+                                               onClick={() => handleUpdateShareholder(selectedEquityIndex, 'type', 'individual')}
+                                               className={`flex-1 py-2 text-xs rounded-lg border ${selectedClient.equityStructure[selectedEquityIndex].type === 'individual' ? 'bg-red-50 border-red-200 text-red-700' : 'border-slate-200 text-slate-600'}`}
+                                            >
+                                               个人
+                                            </button>
+                                            <button 
+                                               onClick={() => handleUpdateShareholder(selectedEquityIndex, 'type', 'institution')}
+                                               className={`flex-1 py-2 text-xs rounded-lg border ${selectedClient.equityStructure[selectedEquityIndex].type === 'institution' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'border-slate-200 text-slate-600'}`}
+                                            >
+                                               机构
+                                            </button>
+                                         </div>
+                                      </div>
+                                      <button 
+                                         onClick={() => handleDeleteShareholder(selectedEquityIndex)}
+                                         className="w-full mt-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg text-sm font-medium flex items-center justify-center"
+                                      >
+                                         <Trash2 className="w-4 h-4 mr-2" /> 删除股东
+                                      </button>
+                                   </>
+                                )}
+
+                                {selectedEquityType === 'subsidiary' && selectedEquityIndex !== null && selectedClient.subsidiaries && (
+                                   <>
+                                      <div>
+                                         <label className="block text-xs font-semibold text-slate-500 mb-1">公司名称</label>
+                                         <input 
+                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            value={selectedClient.subsidiaries[selectedEquityIndex].name}
+                                            onChange={(e) => handleUpdateSubsidiary(selectedEquityIndex, 'name', e.target.value)}
+                                         />
+                                      </div>
+                                      <div>
+                                         <label className="block text-xs font-semibold text-slate-500 mb-1">持股比例 (%)</label>
+                                         <input 
+                                            type="number"
+                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            value={selectedClient.subsidiaries[selectedEquityIndex].percentage}
+                                            onChange={(e) => handleUpdateSubsidiary(selectedEquityIndex, 'percentage', parseFloat(e.target.value) || 0)}
+                                         />
+                                      </div>
+                                      <div>
+                                         <label className="block text-xs font-semibold text-slate-500 mb-1">行业</label>
+                                         <input 
+                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            value={selectedClient.subsidiaries[selectedEquityIndex].industry || ''}
+                                            onChange={(e) => handleUpdateSubsidiary(selectedEquityIndex, 'industry', e.target.value)}
+                                         />
+                                      </div>
+                                      <button 
+                                         onClick={() => {
+                                            if(!selectedClient.subsidiaries) return;
+                                            const newList = [...selectedClient.subsidiaries];
+                                            newList.splice(selectedEquityIndex, 1);
+                                            setSelectedClient({ ...selectedClient, subsidiaries: newList });
+                                            setSelectedEquityType(null);
+                                         }}
+                                         className="w-full mt-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg text-sm font-medium flex items-center justify-center"
+                                      >
+                                         <Trash2 className="w-4 h-4 mr-2" /> 删除子公司
+                                      </button>
+                                   </>
+                                )}
+                             </div>
+                         </div>
+                         
+                         {/* Floating Add Buttons */}
+                         {!selectedEquityType && (
+                            <div className="absolute bottom-6 right-6 flex flex-col space-y-3 z-20">
+                               <button 
+                                  onClick={handleAddShareholder}
+                                  className="flex items-center bg-white shadow-lg border border-slate-100 px-4 py-2 rounded-full text-sm font-medium text-slate-700 hover:text-indigo-600 hover:scale-105 transition-all"
+                               >
+                                  <Plus className="w-4 h-4 mr-2" /> 添加股东
+                               </button>
+                               <button 
+                                  onClick={handleAddSubsidiary}
+                                  className="flex items-center bg-white shadow-lg border border-slate-100 px-4 py-2 rounded-full text-sm font-medium text-slate-700 hover:text-emerald-600 hover:scale-105 transition-all"
+                               >
+                                  <Plus className="w-4 h-4 mr-2" /> 添加对外投资
+                               </button>
+                            </div>
+                         )}
+                      </div>
+                   )}
+
+                   {activeTab === 'CONTACTS' && (
+                      <div className="h-full p-6 flex flex-col md:flex-row gap-6">
+                         <div className="flex-1 overflow-y-auto">
+                            <div className="flex justify-between items-center mb-4">
+                               <h4 className="font-bold text-slate-800">联系人列表</h4>
+                               <button 
+                                  onClick={handleAddContact}
+                                  className="text-sm bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-100"
+                               >
+                                  <Plus className="w-4 h-4 inline mr-1" /> 添加
+                               </button>
+                            </div>
+                            <div className="space-y-3">
+                               {selectedClient.contacts.map(contact => (
+                                  <div 
+                                    key={contact.id} 
+                                    onClick={() => handleEditContact(contact)}
+                                    className={`p-4 rounded-xl border cursor-pointer transition-all ${editingContactId === contact.id ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200'}`}
+                                  >
+                                     <div className="flex justify-between items-start">
+                                        <div className="flex items-center">
+                                           <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold mr-3">
+                                              {contact.name[0]}
+                                           </div>
+                                           <div>
+                                              <p className="font-bold text-slate-800 text-sm">{contact.name}</p>
+                                              <p className="text-xs text-slate-500">{contact.role}</p>
+                                           </div>
+                                        </div>
+                                        <button 
+                                           onClick={(e) => { e.stopPropagation(); handleDeleteContact(contact.id); }}
+                                           className="text-slate-300 hover:text-red-500"
+                                        >
+                                           <Trash2 className="w-4 h-4" />
+                                        </button>
+                                     </div>
+                                     <div className="mt-3 space-y-1">
+                                        <div className="flex items-center text-xs text-slate-600">
+                                           <Mail className="w-3 h-3 mr-2 text-slate-400" />
+                                           {contact.email || '-'}
+                                        </div>
+                                        <div className="flex items-center text-xs text-slate-600">
+                                           <Phone className="w-3 h-3 mr-2 text-slate-400" />
+                                           {contact.phone || '-'}
+                                        </div>
+                                     </div>
+                                  </div>
+                               ))}
+                               {selectedClient.contacts.length === 0 && (
+                                  <div className="text-center py-10 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                                     <ContactIcon className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                     <p className="text-sm">暂无联系人</p>
+                                  </div>
+                               )}
+                            </div>
+                         </div>
+                         
+                         {/* Contact Editor */}
+                         {editingContactId && (
+                            <div className="w-full md:w-80 bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
+                               <h4 className="font-bold text-slate-800 mb-4">{editingContactId === 'NEW' ? '新建联系人' : '编辑联系人'}</h4>
+                               <div className="space-y-4">
+                                  <div>
+                                     <label className="block text-xs font-semibold text-slate-500 mb-1">姓名</label>
+                                     <input 
+                                        className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                        value={tempContact.name || ''}
+                                        onChange={e => setTempContact({...tempContact, name: e.target.value})}
+                                        autoFocus
+                                     />
+                                  </div>
+                                  <div>
+                                     <label className="block text-xs font-semibold text-slate-500 mb-1">职位</label>
+                                     <input 
+                                        className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                        value={tempContact.role || ''}
+                                        onChange={e => setTempContact({...tempContact, role: e.target.value})}
+                                     />
+                                  </div>
+                                  <div>
+                                     <label className="block text-xs font-semibold text-slate-500 mb-1">邮箱</label>
+                                     <input 
+                                        className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                        value={tempContact.email || ''}
+                                        onChange={e => setTempContact({...tempContact, email: e.target.value})}
+                                     />
+                                  </div>
+                                  <div>
+                                     <label className="block text-xs font-semibold text-slate-500 mb-1">电话</label>
+                                     <input 
+                                        className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                        value={tempContact.phone || ''}
+                                        onChange={e => setTempContact({...tempContact, phone: e.target.value})}
+                                     />
+                                  </div>
+                                  <div className="flex gap-2 pt-2">
+                                     <button 
+                                        onClick={() => setEditingContactId(null)}
+                                        className="flex-1 py-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium"
+                                     >
+                                        取消
+                                     </button>
+                                     <button 
+                                        onClick={handleSaveContact}
+                                        className="flex-1 py-2 text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium"
+                                     >
+                                        确认
+                                     </button>
+                                  </div>
+                               </div>
+                            </div>
+                         )}
+                      </div>
+                   )}
+                </div>
+             </div>
+          </div>
+       )}
     </div>
   );
 };

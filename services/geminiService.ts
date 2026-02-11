@@ -1,189 +1,233 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Visit, Sentiment } from "../types";
+import { generateSparkContent } from "./iflytekService";
+import { Visit } from "../types";
 
-// Initialize Gemini Client
-const getClient = () => {
-  const apiKey = process.env.API_KEY || '';
-  return new GoogleGenAI({ apiKey });
+const AI_MODEL_KEY = 'visitpro_ai_model';
+const DEEPSEEK_KEY_KEY = 'visitpro_deepseek_key';
+
+export const getAIConfig = () => {
+  return {
+    model: localStorage.getItem(AI_MODEL_KEY) || 'gemini',
+    // The API key must be obtained exclusively from the environment variable process.env.API_KEY
+    geminiKey: process.env.API_KEY, 
+    deepseekKey: localStorage.getItem(DEEPSEEK_KEY_KEY) || ''
+  };
 };
 
-/**
- * Analyzes raw visit notes to extract structured insights.
- */
-export const analyzeVisitNote = async (noteContent: string, clientName: string) => {
-  if (!process.env.API_KEY) {
-    // Return mock data if no key for demo purposes
-    return {
-      summary: "模拟数据：客户对新产品线表现出浓厚兴趣，但对价格阶梯存有顾虑。",
-      sentiment: Sentiment.Neutral,
-      actionItems: ["发送报价单 PDF", "安排技术团队跟进会议"],
-    };
-  }
-
-  const ai = getClient();
+export const callDeepSeek = async (messages: any[], jsonMode: boolean = false) => {
+  const config = getAIConfig();
+  if (!config.deepseekKey) throw new Error("DeepSeek API Key not configured");
   
-  const prompt = `
-    你是一个专业的 CRM 助理。请分析客户 "${clientName}" 的以下拜访笔记。
-    
-    笔记内容: "${noteContent}"
-    
-    请返回一个 JSON 对象，包含：
-    1. summary: 简洁的专业摘要（中文，不超过3句）。
-    2. sentiment: 情感倾向，必须是 "积极" (Positive), "中性" (Neutral), "消极" (Negative) 之一。
-    3. actionItems: 字符串数组，列出具体的下一步行动或待办事项（中文）。
-  `;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summary: { type: Type.STRING },
-            sentiment: { type: Type.STRING, enum: ["积极", "中性", "消极"] },
-            actionItems: { type: Type.ARRAY, items: { type: Type.STRING } }
-          },
-          required: ["summary", "sentiment", "actionItems"]
-        }
-      }
-    });
-
-    const result = JSON.parse(response.text || "{}");
-    return result;
-  } catch (error) {
-    console.error("Gemini Analysis Error:", error);
-    throw new Error("Failed to analyze visit notes.");
-  }
-};
-
-/**
- * Transcribes audio data to text using Gemini Multimodal capabilities.
- */
-export const transcribeAudioNote = async (base64Audio: string, mimeType: string = 'audio/webm') => {
-  if (!process.env.API_KEY) {
-    return "（模拟转写）: 检测到录音，但未配置 API Key。请在系统设置中配置 Supabase 和 API Key 以启用真实 AI 功能。";
-  }
-
-  const ai = getClient();
-  
-  try {
-    // Clean base64 string if it contains data URI prefix
-    const cleanBase64 = base64Audio.replace(/^data:audio\/\w+;base64,/, "");
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-native-audio-preview-12-2025', // Specialized for audio
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: mimeType,
-              data: cleanBase64
-            }
-          },
-          {
-            text: "请将这段会议录音逐字转写为中文文本。如果是对话，请区分发言人（如发言人1、发言人2）。只输出转写内容，不要包含任何解释性文字。"
-          }
-        ]
-      }
-    });
-
-    return response.text || "";
-  } catch (error) {
-    console.error("Gemini Transcription Error:", error);
-    throw new Error("语音转文字失败，请检查网络或音频格式。");
-  }
-};
-
-/**
- * Generates a follow-up email based on the visit.
- */
-export const generateFollowUpEmail = async (visit: Visit, tone: 'Formal' | 'Casual' | 'Concise') => {
-  if (!process.env.API_KEY) return `主题：关于拜访的跟进\n\n尊敬的 ${visit.clientName}：\n\n（这是模拟邮件，因为未检测到 API Key）。感谢您抽出时间与我会面。`;
-
-  const ai = getClient();
-  const prompt = `
-    根据以下会议摘要，为客户 "${visit.clientName}" 写一封中文跟进邮件。
-    语气风格：${tone}。
-    
-    会议摘要：
-    "${visit.summary || visit.content}"
-    
-    邮件应包含以下行动项的确认：${visit.actionItems?.join(', ') || '一般跟进'}。
-    请保留 [姓名] 和 [日期] 等占位符。
-  `;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-    });
-    return response.text;
-  } catch (error) {
-    console.error("Gemini Email Gen Error:", error);
-    return "生成邮件草稿失败。";
-  }
+  const response = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.deepseekKey}`
+      },
+      body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: messages,
+          response_format: jsonMode ? { type: "json_object" } : undefined
+      })
+  });
+  const data = await response.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.choices[0].message.content;
 };
 
 /**
  * Generates a client profile analysis.
  */
 export const generateClientProfile = async (clientName: string, industry: string, region: string) => {
-  // Mock Data
-  if (!process.env.API_KEY) return {
-    financials: "模拟数据：第三季度表现强劲，同比增长 15%。现金流健康。",
-    supplyChain: "模拟数据：主要供应商集中在东南亚地区，物流网络覆盖全国。",
-    equity: [
-      { name: "创始人团队", percentage: 40, type: "individual" },
-      { name: "红杉资本", percentage: 25, type: "institution" },
-      { name: "腾讯投资", percentage: 15, type: "institution" },
-      { name: "公众持股", percentage: 20, type: "individual" }
-    ]
-  };
-
-  const ai = getClient();
-  const prompt = `
+  const config = getAIConfig();
+  
+  const systemPrompt = "你是一位资深的行业研究员和财务分析师，擅长通过财务数据和产业链结构挖掘企业价值。";
+  const userPrompt = `
     生成一份关于位于 "${region}" 的 "${industry}" 行业公司 "${clientName}" 的虚构但逼真的企业画像分析（中文）。
     
-    请返回一个 JSON 对象，包含：
-    1. financials: 一段简短的财务趋势分析。
-    2. supplyChain: 一段关于典型供应链结构的描述。
-    3. equity: 一个数组，模拟可能的股权结构。包含 name (股东名), percentage (持股比例数字, 0-100), type ('individual' 或 'institution')。
+    请严格返回一个 JSON 对象(不要包含 Markdown 代码块标记)，包含以下字段：
+
+    1. financials: (String) 财务分析。**必须基于近三年（例如2021-2023）的财务报表数据进行分析**。请体现专业的财务分析逻辑，内容必须包含：
+       - 关键财务指标趋势：列出近三年的营收、净利润、毛利率的具体数值（模拟）及复合增长率 (CAGR)。
+       - 盈利能力分析：点评利润结构与成本控制。
+       - 偿债与营运能力：简述流动比率、速动比率或应收账款周转天数等体现经营效率的指标。
+       - 总结：一句话评价其财务健康度。
+
+    2. supplyChain: (String) 供应链信息。**必须从专业产业链视角列出具体的上下游信息**。内容必须包含：
+       - 上游端：明确列出该企业采购的**具体核心原材料、零部件或服务名称**，并列出 3-5 家该行业典型的**上游供应商企业名称**。
+       - 下游端：明确列出该企业产品的**具体应用场景、销售渠道或成品名称**，并列出 3-5 家该行业典型的**下游客户企业名称**。
+
+    3. equity: (Array) 一个数组，模拟可能的股东结构（上游）。包含 name (股东名), percentage (持股比例数字, 0-100), type ('individual' 或 'institution')。
+    4. subsidiaries: (Array) 一个数组，模拟可能的对外投资/子公司（下游）。包含 name (子公司名), percentage (持股比例, 0-100), industry (行业)。
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-         responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            financials: { type: Type.STRING },
-            supplyChain: { type: Type.STRING },
-            equity: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: { type: Type.STRING },
-                  percentage: { type: Type.NUMBER },
-                  type: { type: Type.STRING, enum: ["individual", "institution"] }
-                },
-                required: ["name", "percentage"]
-              }
+    let resultText = "{}";
+
+    if (config.model === 'deepseek') {
+        resultText = await callDeepSeek([
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+        ], true);
+    } else if (config.model === 'spark') {
+        resultText = await generateSparkContent(systemPrompt + "\n" + userPrompt + "\n请直接返回JSON字符串。");
+    } else {
+        // Gemini
+        // Always use process.env.API_KEY directly as per guidelines
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: [{ parts: [{ text: userPrompt }] }],
+            config: {
+                systemInstruction: systemPrompt,
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        financials: { type: Type.STRING },
+                        supplyChain: { type: Type.STRING },
+                        equity: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    name: { type: Type.STRING },
+                                    percentage: { type: Type.NUMBER },
+                                    type: { type: Type.STRING, enum: ["individual", "institution"] }
+                                },
+                                required: ["name", "percentage"]
+                            }
+                        },
+                        subsidiaries: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    name: { type: Type.STRING },
+                                    percentage: { type: Type.NUMBER },
+                                    industry: { type: Type.STRING }
+                                },
+                                required: ["name", "percentage"]
+                            }
+                        }
+                    },
+                    required: ["financials", "supplyChain", "equity", "subsidiaries"]
+                }
             }
-          },
-          required: ["financials", "supplyChain", "equity"]
-        }
-      }
-    });
-    return JSON.parse(response.text || "{}");
+        });
+        resultText = response.text || "{}";
+    }
+
+    // Cleaning logic
+    resultText = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(resultText);
+
   } catch (error) {
-    console.error("Gemini Profile Gen Error:", error);
-    throw error;
+    console.error("AI Profile Gen Error:", error);
+    // Return mock data for demo stability if AI fails
+    return {
+        financials: "模拟数据：\n\n【近三年财务摘要 (2021-2023)】\n1. 营收趋势：2021年 5.2亿 -> 2022年 6.8亿 -> 2023年 8.5亿，三年CAGR为27.8%，显示出强劲的市场扩张能力。\n2. 盈利能力：毛利率维持在 35%-38% 区间，2023年净利润率达到 12.5%，同比提升 1.5个百分点，得益于规模效应带来的成本摊薄。\n3. 营运效率：应收账款周转天数从 90天缩短至 75天，经营性现金流净额连续三年为正。\n\n总结：公司处于快速成长期，财务结构稳健，具备良好的抗风险能力。",
+        supplyChain: "模拟数据：\n\n【上游供应链 (Raw Materials & Components)】\n- 核心采购：高性能芯片、工业级传感器、精密铝合金结构件。\n- 典型供应商：德州仪器 (TI)、博世 (Bosch)、南山铝业、汇川技术。\n\n【下游产业链 (Applications & Clients)】\n- 应用场景：新能源汽车制造、智能仓储物流中心、3C电子组装线。\n- 典型客户：比亚迪汽车、京东物流、立讯精密、宁德时代。",
+        equity: [
+            { name: "创始人团队", percentage: 40, type: "individual" },
+            { name: "红杉资本", percentage: 25, type: "institution" },
+        ],
+        subsidiaries: [
+            { name: "北京研发中心", percentage: 100, industry: "科技研发" },
+            { name: "上海分公司", percentage: 100, industry: "销售" }
+        ]
+    };
   }
+};
+
+export const analyzeVisitNote = async (note: string, clientName: string) => {
+    const config = getAIConfig();
+    const systemPrompt = "你是一位专业的销售管理顾问。请分析拜访记录，提取关键信息。";
+    const userPrompt = `
+    请分析以下关于客户 "${clientName}" 的拜访记录：
+    "${note}"
+
+    请返回一个JSON对象，包含以下字段：
+    1. summary (string): 100字以内的执行摘要。
+    2. sentiment (string): 客户情感倾向，必须为 "积极"、"中性" 或 "消极" 之一。
+    3. actionItems (string[]): 后续待办事项列表。
+    `;
+
+    try {
+        let resultText = "{}";
+
+        if (config.model === 'deepseek') {
+             resultText = await callDeepSeek([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+             ], true);
+        } else if (config.model === 'spark') {
+             resultText = await generateSparkContent(systemPrompt + "\n" + userPrompt + "\n请直接返回JSON字符串。");
+        } else {
+             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+             const response = await ai.models.generateContent({
+                model: "gemini-3-flash-preview",
+                contents: [{ parts: [{ text: userPrompt }] }],
+                config: {
+                    systemInstruction: systemPrompt,
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            summary: { type: Type.STRING },
+                            sentiment: { type: Type.STRING, enum: ["积极", "中性", "消极"] },
+                            actionItems: { type: Type.ARRAY, items: { type: Type.STRING } }
+                        },
+                        required: ["summary", "sentiment", "actionItems"]
+                    }
+                }
+             });
+             resultText = response.text || "{}";
+        }
+        
+        resultText = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(resultText);
+    } catch (e) {
+        console.error("Analyze Visit Error", e);
+        throw e;
+    }
+};
+
+export const generateFollowUpEmail = async (visit: Visit, tone: string) => {
+    const config = getAIConfig();
+    const systemPrompt = "你是一位专业的销售。请根据拜访记录写一封跟进邮件。";
+    const userPrompt = `
+    背景：
+    客户：${visit.clientName}
+    拜访内容摘要：${visit.summary || visit.content}
+    待办事项：${visit.actionItems?.join(', ')}
+    
+    请撰写一封 ${tone === 'Formal' ? '正式' : '亲切'} 的跟进邮件。
+    邮件应包含感谢语、会议回顾和后续步骤。
+    请直接返回邮件正文，不要包含标题或其他解释。
+    `;
+    
+    try {
+        if (config.model === 'deepseek') {
+            return await callDeepSeek([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+            ]);
+        } else if (config.model === 'spark') {
+            return await generateSparkContent(systemPrompt + "\n" + userPrompt);
+        } else {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const response = await ai.models.generateContent({
+                model: "gemini-3-flash-preview",
+                contents: [{ parts: [{ text: userPrompt }] }],
+                config: {
+                    systemInstruction: systemPrompt
+                }
+            });
+            return response.text;
+        }
+    } catch (e) {
+        console.error("Email Gen Error", e);
+        throw e;
+    }
 };
