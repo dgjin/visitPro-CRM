@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   BarChart, 
   Bar, 
@@ -18,18 +18,26 @@ import {
   Trophy,
   User as UserIcon,
   X,
-  ChevronRight
+  ChevronRight,
+  Building2,
+  Network
 } from 'lucide-react';
-import { Visit, Client, ClientStatus } from '../types';
+import { Visit, Client, ClientStatus, User, Department } from '../types';
 
 interface DashboardProps {
   visits: Visit[];
   clients: Client[];
+  users?: User[];
+  departments?: Department[];
   onNavigate: (view: any) => void;
+  onViewVisit?: (visitId: string) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, onNavigate }) => {
+type RankingDimension = 'USER' | 'INSTITUTION' | 'TEAM';
+
+export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [], departments = [], onNavigate, onViewVisit }) => {
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+  const [rankingDimension, setRankingDimension] = useState<RankingDimension>('USER');
 
   // Calculated Stats
   const totalClients = clients.length;
@@ -40,23 +48,94 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, onNavigat
   const visitsThisMonth = visits.length; // Simplified for demo
   const conversionRate = Math.round((activeClients / (totalClients || 1)) * 100);
 
-  // Aggregation for User Visits
-  const visitsByUser = React.useMemo(() => {
-    const map = new Map<string, { name: string; count: number; id: string }>();
-    visits.forEach(v => {
-        // Use a composite key or just ID if robust, fall back to name if ID missing
-        const id = v.ownerId || v.ownerName || 'unknown';
-        const name = v.ownerName || '未知用户';
-        if (!map.has(id)) {
-            map.set(id, { name, count: 0, id });
-        }
-        map.get(id)!.count++;
-    });
-    return Array.from(map.values()).sort((a, b) => b.count - a.count);
-  }, [visits]);
+  // Helper to get Department Path [Root, Child, Grandchild]
+  const getDeptPath = (deptId: string | undefined): Department[] => {
+    if (!deptId || departments.length === 0) return [];
+    const path: Department[] = [];
+    let current = departments.find(d => d.id === deptId);
+    let guard = 0;
+    while (current && guard < 10) { // Safety guard against cycles
+        path.unshift(current);
+        current = departments.find(d => d.id === current?.parentId);
+        guard++;
+    }
+    return path;
+  };
 
-  const topUsers = visitsByUser.slice(0, 10);
-  const maxCount = visitsByUser.length > 0 ? visitsByUser[0].count : 0;
+  // Aggregation Logic
+  const statsData = useMemo(() => {
+    const map = new Map<string, { name: string; count: number; id: string }>();
+
+    visits.forEach(v => {
+        let key = '';
+        let name = '';
+
+        if (rankingDimension === 'USER') {
+             key = v.ownerId || v.ownerName || 'unknown';
+             name = v.ownerName || '未知用户';
+        } else {
+             // Logic for Organization dimensions
+             const owner = users.find(u => u.id === v.ownerId);
+             const path = getDeptPath(owner?.departmentId);
+
+             if (rankingDimension === 'INSTITUTION') {
+                 // Level 1 Department (path[1]) - Assuming path[0] is Root/Headquarters
+                 if (path.length >= 2) {
+                     key = path[1].id;
+                     name = path[1].name;
+                 } else if (path.length === 1) {
+                     // Fallback to Root if no sub-departments
+                     key = path[0].id;
+                     name = path[0].name;
+                 } else {
+                     key = 'unknown_inst';
+                     name = '未知机构';
+                 }
+             } else if (rankingDimension === 'TEAM') {
+                 // Level 2 + Level 3 + Level 4 Department
+                 // path[0]=Root, path[1]=L1, path[2]=L2, path[3]=L3, path[4]=L4
+                 if (path.length >= 3) {
+                     // Start with Level 2 (path[2])
+                     key = path[2].id;
+                     name = path[2].name;
+
+                     if (path.length >= 4) {
+                         // Add Level 3
+                         key += `_${path[3].id}`;
+                         name += ` - ${path[3].name}`;
+                         
+                         if (path.length >= 5) {
+                             // Add Level 4
+                             key += `_${path[4].id}`;
+                             name += ` - ${path[4].name}`;
+                         }
+                     }
+                 } else if (path.length === 2) {
+                     // Fallback to Level 1 (e.g. path[1]) if tree is shallow
+                     key = path[1].id;
+                     name = path[1].name;
+                 } else if (path.length === 1) {
+                     // Fallback to Root
+                     key = path[0].id;
+                     name = path[0].name;
+                 } else {
+                     key = 'unknown_team';
+                     name = '未知团队';
+                 }
+             }
+        }
+
+        if (!map.has(key)) {
+            map.set(key, { name, count: 0, id: key });
+        }
+        map.get(key)!.count++;
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [visits, users, departments, rankingDimension]);
+
+  const topStats = statsData.slice(0, 10);
+  const maxCount = statsData.length > 0 ? statsData[0].count : 0;
 
   // Mock Data for Charts (Keep existing)
   const activityData = [
@@ -157,17 +236,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, onNavigat
                 </div>
             </div>
 
-            {/* NEW SECTION: Personnel Visit Stats */}
+            {/* NEW SECTION: Personnel / Org Visit Stats */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-3">
                     <h3 className="text-lg font-bold text-slate-800 flex items-center">
                         <Trophy className="w-5 h-5 mr-2 text-amber-500" />
-                        团队拜访排行
+                        {rankingDimension === 'USER' ? '个人' : rankingDimension === 'INSTITUTION' ? '机构' : '团队'}拜访排行
                     </h3>
-                    {visitsByUser.length > 10 && (
+                    
+                    <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
+                        <button 
+                            onClick={() => setRankingDimension('USER')}
+                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${rankingDimension === 'USER' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            人员
+                        </button>
+                        <button 
+                            onClick={() => setRankingDimension('INSTITUTION')}
+                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${rankingDimension === 'INSTITUTION' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            机构
+                        </button>
+                        <button 
+                            onClick={() => setRankingDimension('TEAM')}
+                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${rankingDimension === 'TEAM' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            团队
+                        </button>
+                    </div>
+
+                    {statsData.length > 10 && (
                         <button 
                             onClick={() => setIsStatsModalOpen(true)}
-                            className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center"
+                            className="hidden md:flex text-sm text-indigo-600 hover:text-indigo-800 font-medium items-center ml-auto"
                         >
                             查看全部 <ChevronRight className="w-4 h-4" />
                         </button>
@@ -175,27 +276,41 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, onNavigat
                 </div>
                 
                 <div className="space-y-3">
-                    {topUsers.map((user, index) => (
-                        <div key={user.id} className="flex items-center">
+                    {topStats.map((item, index) => (
+                        <div key={item.id} className="flex items-center">
                             <div className={`w-6 text-center text-sm font-bold mr-2 ${index < 3 ? 'text-amber-500' : 'text-slate-400'}`}>
                                 {index + 1}
                             </div>
                             <div className="flex-1">
                                 <div className="flex justify-between text-sm mb-1">
-                                    <span className="font-medium text-slate-700">{user.name}</span>
-                                    <span className="text-slate-500">{user.count} 次</span>
+                                    <span className="font-medium text-slate-700 flex items-center">
+                                       {rankingDimension === 'USER' && <UserIcon className="w-3 h-3 mr-1.5 text-slate-400"/>}
+                                       {rankingDimension === 'INSTITUTION' && <Building2 className="w-3 h-3 mr-1.5 text-slate-400"/>}
+                                       {rankingDimension === 'TEAM' && <Network className="w-3 h-3 mr-1.5 text-slate-400"/>}
+                                       {item.name}
+                                    </span>
+                                    <span className="text-slate-500">{item.count} 次</span>
                                 </div>
                                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                                     <div 
                                         className={`h-full rounded-full ${index === 0 ? 'bg-amber-400' : index === 1 ? 'bg-slate-400' : index === 2 ? 'bg-orange-400' : 'bg-indigo-400'}`} 
-                                        style={{ width: `${(user.count / (maxCount || 1)) * 100}%` }}
+                                        style={{ width: `${(item.count / (maxCount || 1)) * 100}%` }}
                                     ></div>
                                 </div>
                             </div>
                         </div>
                     ))}
-                    {topUsers.length === 0 && (
+                    {topStats.length === 0 && (
                         <div className="text-center text-slate-400 py-4 text-sm">暂无数据</div>
+                    )}
+                    
+                    {statsData.length > 10 && (
+                         <button 
+                            onClick={() => setIsStatsModalOpen(true)}
+                            className="md:hidden mt-2 w-full text-center text-sm text-indigo-600 hover:text-indigo-800 font-medium py-2 bg-slate-50 rounded-lg"
+                        >
+                            查看全部
+                        </button>
                     )}
                 </div>
             </div>
@@ -206,9 +321,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, onNavigat
           <h3 className="text-lg font-bold text-slate-800 mb-4">近期拜访</h3>
           <div className="flex-1 overflow-y-auto space-y-4 max-h-[500px] pr-2">
             {visits.slice(0, 8).map((visit) => (
-              <div key={visit.id} className="group p-3 hover:bg-slate-50 rounded-xl border border-slate-100 transition-all cursor-pointer">
+              <div 
+                key={visit.id} 
+                onClick={() => onViewVisit && onViewVisit(visit.id)}
+                className="group p-3 hover:bg-slate-50 rounded-xl border border-slate-100 transition-all cursor-pointer"
+              >
                 <div className="flex justify-between items-start mb-1">
-                  <span className="font-semibold text-sm text-slate-800 truncate pr-2">{visit.clientName}</span>
+                  <span className="font-semibold text-sm text-slate-800 truncate pr-2 group-hover:text-indigo-600 transition-colors">{visit.clientName}</span>
                   <span className="text-xs text-slate-400 whitespace-nowrap">{new Date(visit.date).toLocaleDateString()}</span>
                 </div>
                 <div className="flex items-center text-xs text-slate-500 mb-1">
@@ -235,14 +354,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, onNavigat
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl animate-scale-in">
                 <div className="flex justify-between items-center p-4 border-b border-slate-100">
-                    <h3 className="text-lg font-bold text-slate-800">团队拜访统计</h3>
+                    <h3 className="text-lg font-bold text-slate-800">
+                        {rankingDimension === 'USER' ? '个人' : rankingDimension === 'INSTITUTION' ? '机构' : '团队'}拜访统计
+                    </h3>
                     <button onClick={() => setIsStatsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {visitsByUser.map((user, index) => (
-                        <div key={user.id} className="flex items-center p-2 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-100">
+                    {statsData.map((item, index) => (
+                        <div key={item.id} className="flex items-center p-2 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-100">
                             <div className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-bold mr-3 ${
                                 index === 0 ? 'bg-amber-100 text-amber-600' : 
                                 index === 1 ? 'bg-slate-100 text-slate-600' : 
@@ -252,13 +373,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, onNavigat
                             </div>
                             <div className="flex-1">
                                 <div className="flex justify-between text-sm mb-1">
-                                    <span className="font-medium text-slate-800">{user.name}</span>
-                                    <span className="font-bold text-indigo-600">{user.count}</span>
+                                    <span className="font-medium text-slate-800 flex items-center">
+                                       {rankingDimension === 'USER' && <UserIcon className="w-3 h-3 mr-1.5 text-slate-400"/>}
+                                       {rankingDimension === 'INSTITUTION' && <Building2 className="w-3 h-3 mr-1.5 text-slate-400"/>}
+                                       {rankingDimension === 'TEAM' && <Network className="w-3 h-3 mr-1.5 text-slate-400"/>}
+                                       {item.name}
+                                    </span>
+                                    <span className="font-bold text-indigo-600">{item.count}</span>
                                 </div>
                                 <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                                     <div 
                                         className="h-full bg-indigo-500 rounded-full" 
-                                        style={{ width: `${(user.count / (maxCount || 1)) * 100}%` }}
+                                        style={{ width: `${(item.count / (maxCount || 1)) * 100}%` }}
                                     ></div>
                                 </div>
                             </div>

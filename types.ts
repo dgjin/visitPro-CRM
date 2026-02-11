@@ -70,7 +70,9 @@ export interface Visit {
   
   // Visit Details
   location?: string;
-  clientParticipants?: string; // Comma separated names
+  clientContact?: string;     // 拜访对象 (Main Contact Person)
+  clientContactRole?: string; // 拜访对象职位 (Main Contact Position)
+  clientParticipants?: string; // Comma separated names (Other participants)
   ourParticipants?: string;    // Comma separated names
 
   // Owner info

@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { generateSparkContent } from "./iflytekService";
-import { Visit } from "../types";
+import { Visit, Sentiment } from "../types";
 
 const AI_MODEL_KEY = 'visitpro_ai_model';
 const DEEPSEEK_KEY_KEY = 'visitpro_deepseek_key';
@@ -187,9 +187,14 @@ export const analyzeVisitNote = async (note: string, clientName: string) => {
         
         resultText = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
         return JSON.parse(resultText);
-    } catch (e) {
+    } catch (e: any) {
         console.error("Analyze Visit Error", e);
-        throw e;
+        // Fallback for when API fails (e.g. Insufficient Balance)
+        return {
+            summary: `(自动生成) 由于 AI 服务暂时不可用或余额不足，无法生成智能摘要。原始记录片段：${note.substring(0, 100)}...`,
+            sentiment: Sentiment.Neutral,
+            actionItems: ["检查 AI 服务配置", "手动整理会议纪要"]
+        };
     }
 };
 
@@ -226,8 +231,9 @@ export const generateFollowUpEmail = async (visit: Visit, tone: string) => {
             });
             return response.text;
         }
-    } catch (e) {
+    } catch (e: any) {
         console.error("Email Gen Error", e);
-        throw e;
+        // Fallback email
+        return `尊敬的 ${visit.clientName} 团队：\n\n您好！\n\n感谢您拨冗与我们会面。此次沟通非常有建设性。\n\n由于系统 AI 服务暂时繁忙，无法自动生成个性化邮件。我们会尽快整理详细方案并发送给您。\n\n如有任何疑问，请随时联系。\n\n祝好，\n\n${visit.ownerName || '销售团队'}`;
     }
 };

@@ -42,9 +42,19 @@ interface VisitManagerProps {
   clients: Client[];
   fieldDefinitions?: CustomFieldDefinition[];
   currentUser: User;
+  initialVisitId?: string | null;
+  onClearInitialVisit?: () => void;
 }
 
-export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, clients, fieldDefinitions = [], currentUser }) => {
+export const VisitManager: React.FC<VisitManagerProps> = ({ 
+  visits, 
+  setVisits, 
+  clients, 
+  fieldDefinitions = [], 
+  currentUser,
+  initialVisitId,
+  onClearInitialVisit
+}) => {
   const [viewMode, setViewMode] = useState<'LIST' | 'EDITOR'>('LIST');
   const [currentVisit, setCurrentVisit] = useState<Partial<Visit>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -85,6 +95,30 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
   // AI State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGeneratingEmail, setIsGeneratingEmail] = useState(false);
+
+  // Handle Initial Visit ID (Deep Linking)
+  useEffect(() => {
+    if (initialVisitId) {
+      const visit = visits.find(v => v.id === initialVisitId);
+      if (visit) {
+        const d = new Date(visit.date);
+        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+        const formattedDate = d.toISOString().slice(0, 16);
+        
+        let recs = visit.recordings || [];
+        if (recs.length === 0 && visit.recordingData) {
+            recs = [{ id: 'legacy', url: visit.recordingData, timestamp: visit.date }];
+        }
+
+        setCurrentVisit({ ...visit, date: formattedDate, recordings: recs });
+        setViewMode('EDITOR');
+        
+        if (onClearInitialVisit) {
+            onClearInitialVisit();
+        }
+      }
+    }
+  }, [initialVisitId, visits, onClearInitialVisit]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -387,6 +421,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
         content: contentToSave,
         type: currentVisit.type || '线下拜访',
         location: currentVisit.location,
+        clientContact: currentVisit.clientContact,
+        clientContactRole: currentVisit.clientContactRole,
         clientParticipants: currentVisit.clientParticipants,
         ourParticipants: currentVisit.ourParticipants,
         ownerId: currentVisit.ownerId,
@@ -432,6 +468,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
             content: contentToSave,
             type: currentVisit.type || '线下拜访',
             location: currentVisit.location,
+            clientContact: currentVisit.clientContact,
+            clientContactRole: currentVisit.clientContactRole,
             clientParticipants: currentVisit.clientParticipants,
             ourParticipants: currentVisit.ourParticipants,
             ownerId: currentVisit.ownerId,
@@ -512,8 +550,14 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
 
   const filteredVisits = visits.filter(v => {
       const searchLower = listSearchTerm.toLowerCase();
-      const matchSearch = v.clientName.toLowerCase().includes(searchLower) || 
-                          (v.content && v.content.toLowerCase().includes(searchLower));
+      const matchSearch = 
+        v.clientName.toLowerCase().includes(searchLower) || 
+        (v.content || '').toLowerCase().includes(searchLower) ||
+        (v.summary || '').toLowerCase().includes(searchLower) ||
+        (v.ownerName || '').toLowerCase().includes(searchLower) ||
+        (v.location || '').toLowerCase().includes(searchLower) ||
+        (v.clientParticipants || '').toLowerCase().includes(searchLower) ||
+        (v.clientContact || '').toLowerCase().includes(searchLower);
       
       const matchType = filterType === 'ALL' || v.type === filterType;
       
@@ -570,8 +614,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                  <input 
                      type="text"
-                     placeholder="搜索客户或内容..."
-                     className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                     placeholder="搜索客户、内容、人员、地点..."
+                     className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-slate-900"
                      value={listSearchTerm}
                      onChange={e => { setListSearchTerm(e.target.value); setCurrentPage(1); }}
                  />
@@ -580,7 +624,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
              {/* Type Filter */}
              <div className="relative">
                  <select
-                     className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white"
+                     className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white text-slate-900"
                      value={filterType}
                      onChange={e => { setFilterType(e.target.value); setCurrentPage(1); }}
                  >
@@ -597,7 +641,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
              <div className="md:col-span-2 flex items-center space-x-2">
                  <input 
                      type="date"
-                     className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                     className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-slate-900"
                      value={startDate}
                      onChange={e => { setStartDate(e.target.value); setCurrentPage(1); }}
                      title="开始日期"
@@ -605,7 +649,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                  <span className="text-slate-400">-</span>
                  <input 
                      type="date"
-                     className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                     className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-slate-900"
                      value={endDate}
                      onChange={e => { setEndDate(e.target.value); setCurrentPage(1); }}
                      title="结束日期"
@@ -887,10 +931,32 @@ export const VisitManager: React.FC<VisitManagerProps> = ({ visits, setVisits, c
                     </div>
                  </div>
 
+                 {/* Contact Person (New) */}
+                 <div className="grid grid-cols-2 gap-3">
+                    <div>
+                       <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">拜访对象</label>
+                       <input 
+                           className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                           value={currentVisit.clientContact || ''}
+                           placeholder="姓名"
+                           onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientContact: e.target.value }))}
+                       />
+                    </div>
+                    <div>
+                       <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">职位</label>
+                       <input 
+                           className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                           value={currentVisit.clientContactRole || ''}
+                           placeholder="职位"
+                           onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientContactRole: e.target.value }))}
+                       />
+                    </div>
+                 </div>
+
                  {/* Participants */}
                  <div className="grid grid-cols-2 gap-3">
                       <div>
-                         <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">客户参与人</label>
+                         <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">其他客户参与人</label>
                          <input 
                              className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
                              value={currentVisit.clientParticipants || ''}

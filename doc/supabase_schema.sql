@@ -60,6 +60,8 @@ create table if not exists public.visits (
     "ownerId" text,
     "ownerName" text,
     "location" text,
+    "clientContact" text,
+    "clientContactRole" text,
     "clientParticipants" text,
     "ourParticipants" text,
     "recordingData" text,
@@ -106,6 +108,8 @@ alter table public.clients add column if not exists "supplyChainInfo" text;
 alter table public.visits add column if not exists "ownerId" text;
 alter table public.visits add column if not exists "ownerName" text;
 alter table public.visits add column if not exists "location" text;
+alter table public.visits add column if not exists "clientContact" text;
+alter table public.visits add column if not exists "clientContactRole" text;
 alter table public.visits add column if not exists "clientParticipants" text;
 alter table public.visits add column if not exists "ourParticipants" text;
 alter table public.visits add column if not exists "recordingData" text;

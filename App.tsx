@@ -213,19 +213,19 @@ const App: React.FC = () => {
   const [currentView, setView] = useState<ViewState>('DASHBOARD');
   
   // App State
-  // Start with MOCK_USER as a safe default for currentUser to avoid null checks in UI initially,
-  // but it will be overwritten if DB users are found.
   const [currentUser, setCurrentUser] = useState<User>(MOCK_USER);
   const [theme, setTheme] = useState(() => localStorage.getItem('visitpro_theme') || 'indigo');
   
-  // Data States - Initialize with empty arrays to prevent flash of mock data
+  // Data States
   const [clients, setClients] = useState<Client[]>([]);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
-  
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Navigation State
+  const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
   
   // Custom Fields State
   const [fieldDefinitions, setFieldDefinitions] = useState<CustomFieldDefinition[]>(() => {
@@ -260,28 +260,21 @@ const App: React.FC = () => {
         fetchRoles()
       ]);
       
-      // Force usage of backend data (even if empty/null) when connected
       setClients(dbClients || []);
       setVisits(dbVisits || []);
       setUsers(dbUsers || []);
       setDepartments(dbDepts || []);
       setRoles(dbRoles || []);
       
-      // Try to determine current user from DB
       if (dbUsers && dbUsers.length > 0) {
-         // Prefer admin, then any user
          const found = dbUsers.find(u => u.role === '管理员') || dbUsers[0];
          setCurrentUser(found);
       } else {
-         // If DB has no users, we might be in a fresh install.
-         // Keep MOCK_USER or set a default "Admin" placeholder so they can create users?
-         // For now, we keep MOCK_USER as a fallback "local identity" to allow creating the first user.
          console.warn("No users found in DB. Using default local user identity.");
       }
       
     } else {
       console.log("Supabase not configured. Using Mock Data.");
-      // Fallback to Mocks ONLY if Supabase is NOT configured
       setClients(MOCK_CLIENTS);
       setVisits(MOCK_VISITS);
       setUsers(MOCK_USERS_LIST);
@@ -312,13 +305,16 @@ const App: React.FC = () => {
     const isAdmin = currentRoleName === '管理员';
     const restrictedViews: ViewState[] = ['USERS', 'DEPARTMENTS', 'ROLES', 'ADMIN'];
 
-    // If user is not admin but tries to access restricted view, redirect to dashboard
     if (!isAdmin && restrictedViews.includes(currentView)) {
       setView('DASHBOARD');
     }
   }, [currentUser, currentView, roles]);
 
-  // Construct Dynamic Theme Styles
+  const handleViewVisit = (visitId: string) => {
+    setSelectedVisitId(visitId);
+    setView('VISITS');
+  };
+
   const themePalette = THEME_PALETTES[theme] || THEME_PALETTES.indigo;
   const themeStyles = `
     :root {
@@ -353,7 +349,10 @@ const App: React.FC = () => {
           <Dashboard 
             visits={visits} 
             clients={clients} 
+            users={users}
+            departments={departments}
             onNavigate={(view) => setView(view)} 
+            onViewVisit={handleViewVisit}
           />
         )}
         {currentView === 'CLIENTS' && (
@@ -371,9 +370,10 @@ const App: React.FC = () => {
             clients={clients} 
             fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'VISIT')}
             currentUser={currentUser}
+            initialVisitId={selectedVisitId}
+            onClearInitialVisit={() => setSelectedVisitId(null)}
           />
         )}
-        {/* Only render these components if checks pass, though Layout/Effect handles visibility/redirect */}
         {currentView === 'USERS' && (
           <UserManager 
             users={users} 

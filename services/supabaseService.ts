@@ -163,6 +163,8 @@ export const upsertVisit = async (visitData: Visit) => {
               ownerId, 
               ownerName, 
               location, 
+              clientContact,
+              clientContactRole,
               clientParticipants, 
               ourParticipants, 
               recordingData,
