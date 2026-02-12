@@ -33,6 +33,7 @@ interface DashboardProps {
   clients: Client[];
   users?: User[];
   departments?: Department[];
+  currentUser: User;
   onNavigate: (view: any) => void;
   onViewVisit?: (visitId: string) => void;
   onCheckIn?: (visitData: Partial<Visit>) => void;
@@ -40,7 +41,16 @@ interface DashboardProps {
 
 type RankingDimension = 'USER' | 'INSTITUTION' | 'TEAM';
 
-export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [], departments = [], onNavigate, onViewVisit, onCheckIn }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ 
+  visits, 
+  clients, 
+  users = [], 
+  departments = [], 
+  currentUser,
+  onNavigate, 
+  onViewVisit, 
+  onCheckIn 
+}) => {
   const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [rankingDimension, setRankingDimension] = useState<RankingDimension>('USER');
   const [isCheckingIn, setIsCheckingIn] = useState(false);
@@ -63,7 +73,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [
               // In real app, we would calculate distance using position.coords.latitude/longitude
               // Here we just pick a random client to simulate "Match"
               setTimeout(() => {
-                  const randomClient = clients.length > 0 ? clients[Math.floor(Math.random() * clients.length)] : null;
+                  // Prioritize filtering clients owned by user for check-in suggestion
+                  const myClients = clients.filter(c => c.ownerId === currentUser.id);
+                  const pool = myClients.length > 0 ? myClients : clients;
+                  const randomClient = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : null;
+                  
                   const now = new Date();
                   now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
                   const formattedDate = now.toISOString().slice(0, 16);
@@ -92,7 +106,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [
       }
   };
 
-  // AI Next Best Action Logic
+  // AI Next Best Action Logic (Personalized)
   const suggestedActions = useMemo(() => {
       const actions: { 
           id: string; 
@@ -104,24 +118,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [
           visitId?: string;
       }[] = [];
       
-      // Rule 1: Positive sentiment but no recent follow up (simplified)
-      const positiveVisits = visits.filter(v => v.sentiment === Sentiment.Positive);
-      positiveVisits.slice(0, 2).forEach(v => {
-          actions.push({
-              id: `act_${v.id}`,
-              title: '乘胜追击',
-              desc: `客户 ${v.clientName} 意向积极，建议尽快安排下次回访或发送方案。`,
-              type: 'OPPORTUNITY',
-              clientName: v.clientName,
-              clientId: v.clientId,
-              visitId: v.id
-          });
-      });
+      // 1. Filter data based on Current User Permissions
+      const myVisits = visits.filter(v => v.ownerId === currentUser.id);
+      const myClients = clients.filter(c => c.ownerId === currentUser.id);
 
-      // Rule 2: Open Action Items
-      visits.forEach(v => {
+      // Rule 1: Open Action Items (Urgent)
+      // Sort by date desc to see most recent tasks
+      const visitsWithActions = myVisits
+          .filter(v => v.actionItems && v.actionItems.length > 0)
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      visitsWithActions.slice(0, 3).forEach(v => {
           if (v.actionItems && v.actionItems.length > 0) {
-              // Take first uncompleted item (simulated)
               actions.push({
                   id: `todo_${v.id}`,
                   title: '待办提醒',
@@ -134,8 +142,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [
           }
       });
 
-      // Rule 3: Churn Risk
-      clients.filter(c => c.status === ClientStatus.Churned).slice(0, 1).forEach(c => {
+      // Rule 2: Positive sentiment but no recent follow up (Opportunity)
+      const positiveVisits = myVisits
+          .filter(v => v.sentiment === Sentiment.Positive)
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      positiveVisits.slice(0, 2).forEach(v => {
+          // Avoid duplicates if already added as todo
+          if (!actions.some(a => a.visitId === v.id)) {
+              actions.push({
+                  id: `act_${v.id}`,
+                  title: '乘胜追击',
+                  desc: `客户 ${v.clientName} 意向积极，建议尽快安排下次回访或发送方案。`,
+                  type: 'OPPORTUNITY',
+                  clientName: v.clientName,
+                  clientId: v.clientId,
+                  visitId: v.id
+              });
+          }
+      });
+
+      // Rule 3: Churn Risk (Urgent)
+      myClients.filter(c => c.status === ClientStatus.Churned).slice(0, 1).forEach(c => {
           actions.push({
               id: `churn_${c.id}`,
               title: '流失挽回',
@@ -146,8 +174,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [
           });
       });
 
-      return actions.slice(0, 3); // Top 3
-  }, [visits, clients]);
+      // Sort: Urgent first
+      actions.sort((a, b) => (a.type === 'URGENT' ? -1 : 1));
+
+      return actions.slice(0, 3); // Top 3 suggestions
+  }, [visits, clients, currentUser.id]);
 
   // Helper to get Department Path [Root, Child, Grandchild]
   const getDeptPath = (deptId: string | undefined): Department[] => {
@@ -313,8 +344,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [
                                         <h4 className="font-bold text-slate-700 text-sm">{action.title}</h4>
                                         <button 
                                             onClick={() => {
-                                                if ((action.type === 'OPPORTUNITY' || action.id.startsWith('churn')) && onCheckIn && action.clientId) {
-                                                    // Trigger new visit draft for this client
+                                                // Handle Execution Logic
+                                                if (action.id.startsWith('todo') && action.visitId) {
+                                                    // For tasks, view the original visit
+                                                    onViewVisit && onViewVisit(action.visitId);
+                                                } else if (onCheckIn && action.clientId) {
+                                                    // For opportunities or churn recovery, start a new visit draft
                                                     onCheckIn({
                                                         clientId: action.clientId,
                                                         clientName: action.clientName,
@@ -323,9 +358,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [
                                                             ? `[AI 建议回访] 跟进之前积极的互动。` 
                                                             : `[AI 建议关怀] 客户流失风险预警回访。`
                                                     });
-                                                } else if (action.visitId) {
-                                                    // View the past visit context
-                                                    onViewVisit && onViewVisit(action.visitId);
                                                 } else {
                                                     onNavigate('VISITS');
                                                 }

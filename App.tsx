@@ -449,6 +449,7 @@ const App: React.FC = () => {
             clients={clients} 
             users={users}
             departments={departments}
+            currentUser={currentUser}
             onNavigate={(view) => setView(view)} 
             onViewVisit={handleViewVisit}
             onCheckIn={handleCheckIn}
