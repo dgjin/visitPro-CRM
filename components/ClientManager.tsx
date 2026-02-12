@@ -69,7 +69,8 @@ const EquityStructureMap = ({
   onSelectShareholder,
   onSelectSubsidiary,
   selectedType, // 'shareholder' | 'subsidiary' | null
-  selectedIndex // number | null
+  selectedIndex, // number | null
+  readOnly = false
 }: { 
   clientName: string; 
   shareholders: Shareholder[]; 
@@ -78,6 +79,7 @@ const EquityStructureMap = ({
   onSelectSubsidiary: (index: number) => void;
   selectedType: 'shareholder' | 'subsidiary' | null;
   selectedIndex: number | null;
+  readOnly?: boolean;
 }) => {
   const width = 800;
   const height = 600;
@@ -171,8 +173,8 @@ const EquityStructureMap = ({
          return (
             <g 
               key={`node-sh-${i}`} 
-              onClick={(e) => { e.stopPropagation(); onSelectShareholder(i); }} 
-              className="cursor-pointer transition-all hover:opacity-90"
+              onClick={(e) => { e.stopPropagation(); if(!readOnly) onSelectShareholder(i); }} 
+              className={`transition-all ${readOnly ? '' : 'cursor-pointer hover:opacity-90'}`}
               filter="url(#shadow)"
             >
                <circle 
@@ -203,8 +205,8 @@ const EquityStructureMap = ({
          return (
             <g 
               key={`node-sub-${i}`} 
-              onClick={(e) => { e.stopPropagation(); onSelectSubsidiary(i); }} 
-              className="cursor-pointer transition-all hover:opacity-90"
+              onClick={(e) => { e.stopPropagation(); if(!readOnly) onSelectSubsidiary(i); }} 
+              className={`transition-all ${readOnly ? '' : 'cursor-pointer hover:opacity-90'}`}
               filter="url(#shadow)"
             >
                <rect 
@@ -263,6 +265,16 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   const [selectedEquityType, setSelectedEquityType] = useState<'shareholder' | 'subsidiary' | null>(null);
   const [selectedEquityIndex, setSelectedEquityIndex] = useState<number | null>(null);
 
+  // Permission Logic
+  const canEdit = (client: Client | null) => {
+      if (!client) return true; // New client
+      if (currentUser?.role === '管理员') return true;
+      if (client.ownerId && currentUser?.id === client.ownerId) return true;
+      return false; // Read only for others
+  };
+
+  const isReadOnly = selectedClient ? !canEdit(selectedClient) : false;
+
   const filteredClients = clients.filter(c => 
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     c.industry.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -274,7 +286,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   const paginatedClients = filteredClients.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   const handleGenerateProfile = async () => {
-    if (!selectedClient) return;
+    if (!selectedClient || isReadOnly) return;
     setIsProfileLoading(true);
     try {
       const profile = await generateClientProfile(selectedClient.name, selectedClient.industry, selectedClient.region);
@@ -314,16 +326,22 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
     setActiveTab('BASIC');
   };
   
-  const handleUpdateCustomField = (key: string, value: string) => {
-    if (!selectedClient) return;
+  const handleUpdateCustomField = (key: string, value: any, type: string = 'text') => {
+    if (!selectedClient || isReadOnly) return;
+    
+    let finalValue = value;
+    if (type === 'number') {
+         finalValue = value === '' ? null : Number(value);
+    }
+    
     setSelectedClient(prev => prev ? {
       ...prev,
-      customFields: { ...prev.customFields, [key]: value }
+      customFields: { ...prev.customFields, [key]: finalValue }
     } : null);
   };
 
   const handleSaveClient = async () => {
-    if (!selectedClient) return;
+    if (!selectedClient || isReadOnly) return;
     if (!selectedClient.name.trim()) {
       alert("客户名称不能为空");
       return;
@@ -393,17 +411,19 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
 
   // --- Contact Handlers ---
   const handleAddContact = () => {
+    if(isReadOnly) return;
     setTempContact({ id: Date.now().toString(), name: '', role: '', email: '', phone: '' });
     setEditingContactId('NEW');
   };
 
   const handleEditContact = (contact: Contact) => {
+    if(isReadOnly) return;
     setTempContact(contact);
     setEditingContactId(contact.id);
   };
 
   const handleSaveContact = () => {
-    if (!selectedClient || !tempContact.name) return;
+    if (!selectedClient || !tempContact.name || isReadOnly) return;
     
     const newContact = tempContact as Contact;
     let newContacts = [...selectedClient.contacts];
@@ -420,7 +440,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   };
 
   const handleDeleteContact = (id: string) => {
-    if (!selectedClient) return;
+    if (!selectedClient || isReadOnly) return;
     if (!confirm("确认删除此联系人？")) return;
     setSelectedClient({
        ...selectedClient,
@@ -430,7 +450,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
 
   // --- Equity Handlers ---
   const handleAddShareholder = () => {
-     if (!selectedClient) return;
+     if (!selectedClient || isReadOnly) return;
      const list = selectedClient.equityStructure || [];
      const newIndex = list.length;
      setSelectedClient({
@@ -442,14 +462,14 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   };
 
   const handleUpdateShareholder = (index: number, field: keyof Shareholder, value: any) => {
-     if (!selectedClient || !selectedClient.equityStructure) return;
+     if (!selectedClient || !selectedClient.equityStructure || isReadOnly) return;
      const newList = [...selectedClient.equityStructure];
      newList[index] = { ...newList[index], [field]: value };
      setSelectedClient({ ...selectedClient, equityStructure: newList });
   };
 
   const handleDeleteShareholder = (index: number) => {
-     if (!selectedClient || !selectedClient.equityStructure) return;
+     if (!selectedClient || !selectedClient.equityStructure || isReadOnly) return;
      const newList = [...selectedClient.equityStructure];
      newList.splice(index, 1);
      setSelectedClient({ ...selectedClient, equityStructure: newList });
@@ -460,7 +480,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   };
 
   const handleAddSubsidiary = () => {
-     if (!selectedClient) return;
+     if (!selectedClient || isReadOnly) return;
      const list = selectedClient.subsidiaries || [];
      const newIndex = list.length;
      setSelectedClient({
@@ -472,7 +492,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   };
 
   const handleUpdateSubsidiary = (index: number, field: keyof Subsidiary, value: any) => {
-     if (!selectedClient || !selectedClient.subsidiaries) return;
+     if (!selectedClient || !selectedClient.subsidiaries || isReadOnly) return;
      const newList = [...selectedClient.subsidiaries];
      newList[index] = { ...newList[index], [field]: value };
      setSelectedClient({ ...selectedClient, subsidiaries: newList });
@@ -524,6 +544,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                 <tbody className="divide-y divide-slate-50">
                    {paginatedClients.map(client => {
                       const firstContact = client.contacts && client.contacts.length > 0 ? client.contacts[0] : null;
+                      const hasPermission = canEdit(client);
                       return (
                          <tr 
                            key={client.id} 
@@ -575,13 +596,15 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                </div>
                             </td>
                             <td className="px-6 py-4 text-right">
-                               <button 
-                                  onClick={(e) => { e.stopPropagation(); handleDeleteClient(client.id); }}
-                                  className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                                  title="删除客户"
-                               >
-                                  <Trash2 className="w-4 h-4" />
-                               </button>
+                               {hasPermission && (
+                                   <button 
+                                      onClick={(e) => { e.stopPropagation(); handleDeleteClient(client.id); }}
+                                      className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                      title="删除客户"
+                                   >
+                                      <Trash2 className="w-4 h-4" />
+                                   </button>
+                               )}
                             </td>
                          </tr>
                       );
@@ -639,14 +662,21 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                       </div>
                       <div>
                          <input 
-                            className="font-bold text-lg text-slate-800 bg-transparent border-none focus:ring-0 p-0 w-64 focus:bg-white focus:px-2 rounded transition-all"
+                            className="font-bold text-lg text-slate-800 bg-transparent border-none focus:ring-0 p-0 w-64 focus:bg-white focus:px-2 rounded transition-all disabled:bg-transparent disabled:text-slate-600"
                             value={selectedClient.name}
                             onChange={(e) => setSelectedClient({...selectedClient, name: e.target.value})}
+                            disabled={isReadOnly}
                          />
                          <p className="text-xs text-slate-500">ID: {selectedClient.id}</p>
                       </div>
                    </div>
                    <div className="flex items-center space-x-3">
+                      {isReadOnly && (
+                          <div className="flex items-center bg-amber-50 text-amber-600 text-xs px-3 py-1.5 rounded-full border border-amber-100 mr-2">
+                              <ShieldIcon className="w-3 h-3 mr-1" />
+                              只读权限
+                          </div>
+                      )}
                       <div className="flex bg-slate-200 p-1 rounded-lg">
                          {(['BASIC', 'EQUITY', 'CONTACTS'] as const).map(tab => (
                             <button
@@ -660,15 +690,19 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                             </button>
                          ))}
                       </div>
-                      <div className="h-6 w-px bg-slate-300 mx-2"></div>
-                      <button 
-                         onClick={handleSaveClient} 
-                         disabled={isSaving}
-                         className="flex items-center bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-70"
-                      >
-                         {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Save className="w-4 h-4 mr-2"/>}
-                         保存
-                      </button>
+                      {!isReadOnly && (
+                          <>
+                            <div className="h-6 w-px bg-slate-300 mx-2"></div>
+                            <button 
+                                onClick={handleSaveClient} 
+                                disabled={isSaving}
+                                className="flex items-center bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-70"
+                            >
+                                {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Save className="w-4 h-4 mr-2"/>}
+                                保存
+                            </button>
+                          </>
+                      )}
                       <button onClick={() => setSelectedClient(null)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-lg">
                          <X className="w-5 h-5" />
                       </button>
@@ -688,9 +722,10 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                      <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">所属行业</label>
                                         <select 
-                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
                                            value={selectedClient.industry}
                                            onChange={e => setSelectedClient({...selectedClient, industry: e.target.value})}
+                                           disabled={isReadOnly}
                                         >
                                            {NATIONAL_STANDARD_INDUSTRIES.map(ind => (
                                               <option key={ind} value={ind}>{ind}</option>
@@ -700,18 +735,20 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                      <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">所在地区</label>
                                         <input 
-                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
                                            value={selectedClient.region}
                                            onChange={e => setSelectedClient({...selectedClient, region: e.target.value})}
                                            placeholder="例如：上海, 浦东新区"
+                                           disabled={isReadOnly}
                                         />
                                      </div>
                                      <div>
                                         <label className="block text-xs font-semibold text-slate-500 mb-1">客户状态</label>
                                         <select 
-                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
                                            value={selectedClient.status}
                                            onChange={e => setSelectedClient({...selectedClient, status: e.target.value as ClientStatus})}
+                                           disabled={isReadOnly}
                                         >
                                            {Object.values(ClientStatus).map(s => <option key={s} value={s}>{s}</option>)}
                                         </select>
@@ -736,9 +773,10 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                               <label className="block text-xs font-semibold text-slate-500 mb-1">{field.label}</label>
                                               {field.type === 'select' ? (
                                                  <select
-                                                    className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                                    className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
                                                     value={selectedClient.customFields?.[field.key] || ''}
-                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value)}
+                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value, field.type)}
+                                                    disabled={isReadOnly}
                                                  >
                                                     <option value="">请选择</option>
                                                     {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -746,9 +784,10 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                               ) : (
                                                  <input 
                                                     type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-                                                    className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                                    className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
                                                     value={selectedClient.customFields?.[field.key] || ''}
-                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value)}
+                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value, field.type)}
+                                                    disabled={isReadOnly}
                                                  />
                                               )}
                                            </div>
@@ -766,14 +805,16 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                         <PieIcon className="w-4 h-4 mr-2 text-indigo-600" />
                                         企业画像与财务分析
                                      </h4>
-                                     <button 
-                                        onClick={handleGenerateProfile}
-                                        disabled={isProfileLoading}
-                                        className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-100 flex items-center font-medium transition-colors"
-                                     >
-                                        {isProfileLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin"/> : <RefreshCw className="w-3 h-3 mr-1"/>}
-                                        AI 生成画像
-                                     </button>
+                                     {!isReadOnly && (
+                                         <button 
+                                            onClick={handleGenerateProfile}
+                                            disabled={isProfileLoading}
+                                            className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-100 flex items-center font-medium transition-colors"
+                                         >
+                                            {isProfileLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin"/> : <RefreshCw className="w-3 h-3 mr-1"/>}
+                                            AI 生成画像
+                                         </button>
+                                     )}
                                   </div>
                                   
                                   <div className="grid grid-cols-1 gap-4 flex-1">
@@ -785,10 +826,11 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                            </button>
                                         </div>
                                         <textarea 
-                                           className="w-full h-[calc(100%-2rem)] bg-transparent resize-none focus:outline-none text-sm text-slate-600 leading-relaxed"
+                                           className="w-full h-[calc(100%-2rem)] bg-transparent resize-none focus:outline-none text-sm text-slate-600 leading-relaxed disabled:text-slate-500"
                                            value={selectedClient.financialAnalysis || ''}
                                            onChange={e => setSelectedClient({...selectedClient, financialAnalysis: e.target.value})}
                                            placeholder="点击生成画像获取财务分析..."
+                                           disabled={isReadOnly}
                                         />
                                      </div>
                                      <div className={`relative transition-all ${fullscreenSection === 'SUPPLY' ? 'fixed inset-4 z-50 bg-white shadow-2xl p-6 rounded-xl border border-slate-200' : 'bg-slate-50 p-4 rounded-xl border border-slate-100'}`}>
@@ -799,10 +841,11 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                            </button>
                                         </div>
                                         <textarea 
-                                           className="w-full h-[calc(100%-2rem)] bg-transparent resize-none focus:outline-none text-sm text-slate-600 leading-relaxed"
+                                           className="w-full h-[calc(100%-2rem)] bg-transparent resize-none focus:outline-none text-sm text-slate-600 leading-relaxed disabled:text-slate-500"
                                            value={selectedClient.supplyChainInfo || ''}
                                            onChange={e => setSelectedClient({...selectedClient, supplyChainInfo: e.target.value})}
                                            placeholder="点击生成画像获取供应链信息..."
+                                           disabled={isReadOnly}
                                         />
                                      </div>
                                   </div>
@@ -816,7 +859,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                    {activeTab === 'EQUITY' && (
                       <div className="h-full flex flex-col md:flex-row">
                          {/* Visualization Panel */}
-                         <div className={`relative transition-all duration-300 ${selectedEquityType ? 'w-full md:w-2/3' : 'w-full'} h-full bg-slate-100 flex items-center justify-center overflow-hidden`}>
+                         <div className={`relative transition-all duration-300 ${selectedEquityType && !isReadOnly ? 'w-full md:w-2/3' : 'w-full'} h-full bg-slate-100 flex items-center justify-center overflow-hidden`}>
                              <div className="absolute top-4 left-4 z-10 flex space-x-2 bg-white/80 backdrop-blur p-1 rounded-lg border border-slate-200">
                                 <button 
                                    onClick={() => setVisualMode('MAP')}
@@ -851,6 +894,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                    onSelectSubsidiary={(i) => { setSelectedEquityType('subsidiary'); setSelectedEquityIndex(i); }}
                                    selectedType={selectedEquityType}
                                    selectedIndex={selectedEquityIndex}
+                                   readOnly={isReadOnly}
                                 />
                              ) : (
                                 <div className="w-full h-full flex flex-col md:flex-row p-4">
@@ -904,7 +948,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                          </div>
 
                          {/* Editor Panel */}
-                         <div className={`bg-white border-l border-slate-200 transition-all duration-300 flex flex-col ${selectedEquityType ? 'w-full md:w-1/3' : 'w-0 hidden'}`}>
+                         <div className={`bg-white border-l border-slate-200 transition-all duration-300 flex flex-col ${selectedEquityType && !isReadOnly ? 'w-full md:w-1/3' : 'w-0 hidden'}`}>
                              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                                 <h3 className="font-bold text-slate-800">
                                    {selectedEquityType === 'shareholder' ? '编辑股东信息' : '编辑子公司信息'}
@@ -1003,7 +1047,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                          </div>
                          
                          {/* Floating Add Buttons */}
-                         {!selectedEquityType && (
+                         {!selectedEquityType && !isReadOnly && (
                             <div className="absolute bottom-6 right-6 flex flex-col space-y-3 z-20">
                                <button 
                                   onClick={handleAddShareholder}
@@ -1027,19 +1071,21 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                          <div className="flex-1 overflow-y-auto">
                             <div className="flex justify-between items-center mb-4">
                                <h4 className="font-bold text-slate-800">联系人列表</h4>
-                               <button 
-                                  onClick={handleAddContact}
-                                  className="text-sm bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-100"
-                               >
-                                  <Plus className="w-4 h-4 inline mr-1" /> 添加
-                               </button>
+                               {!isReadOnly && (
+                                   <button 
+                                      onClick={handleAddContact}
+                                      className="text-sm bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-100"
+                                   >
+                                      <Plus className="w-4 h-4 inline mr-1" /> 添加
+                                   </button>
+                               )}
                             </div>
                             <div className="space-y-3">
                                {selectedClient.contacts.map(contact => (
                                   <div 
                                     key={contact.id} 
                                     onClick={() => handleEditContact(contact)}
-                                    className={`p-4 rounded-xl border cursor-pointer transition-all ${editingContactId === contact.id ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200'}`}
+                                    className={`p-4 rounded-xl border transition-all ${editingContactId === contact.id ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200'} ${isReadOnly ? '' : 'cursor-pointer'}`}
                                   >
                                      <div className="flex justify-between items-start">
                                         <div className="flex items-center">
@@ -1051,12 +1097,14 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                                               <p className="text-xs text-slate-500">{contact.role}</p>
                                            </div>
                                         </div>
-                                        <button 
-                                           onClick={(e) => { e.stopPropagation(); handleDeleteContact(contact.id); }}
-                                           className="text-slate-300 hover:text-red-500"
-                                        >
-                                           <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        {!isReadOnly && (
+                                            <button 
+                                               onClick={(e) => { e.stopPropagation(); handleDeleteContact(contact.id); }}
+                                               className="text-slate-300 hover:text-red-500"
+                                            >
+                                               <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        )}
                                      </div>
                                      <div className="mt-3 space-y-1">
                                         <div className="flex items-center text-xs text-slate-600">
@@ -1080,7 +1128,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                          </div>
                          
                          {/* Contact Editor */}
-                         {editingContactId && (
+                         {editingContactId && !isReadOnly && (
                             <div className="w-full md:w-80 bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
                                <h4 className="font-bold text-slate-800 mb-4">{editingContactId === 'NEW' ? '新建联系人' : '编辑联系人'}</h4>
                                <div className="space-y-4">
@@ -1143,3 +1191,5 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
     </div>
   );
 };
+
+const ShieldIcon = (props: any) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>;

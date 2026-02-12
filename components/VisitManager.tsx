@@ -31,7 +31,8 @@ import {
   Video,
   MapPin,
   Filter,
-  XCircle
+  XCircle,
+  Eye
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
@@ -95,6 +96,20 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   // AI State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGeneratingEmail, setIsGeneratingEmail] = useState(false);
+
+  // Permission Logic
+  const canEdit = (visit: Partial<Visit>) => {
+      // New visit (no ID) -> Allow
+      if (!visit.id) return true;
+      // Admin -> Allow
+      if (currentUser?.role === '管理员') return true;
+      // Owner -> Allow
+      if (visit.ownerId && currentUser?.id === visit.ownerId) return true;
+      // Others -> Read Only
+      return false;
+  };
+
+  const isReadOnly = currentVisit ? !canEdit(currentVisit) : false;
 
   // Handle Initial Visit ID (Deep Linking)
   useEffect(() => {
@@ -176,7 +191,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
   const startNewVisit = () => {
     setCurrentVisit({
-      id: Date.now().toString(),
+      id: '', // Empty ID indicates new
       date: getLocalISOString(),
       content: '',
       type: '线下拜访',
@@ -363,6 +378,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   };
 
   const handleVoiceToggle = () => {
+    if(isReadOnly) return;
     if (isRecording) {
       stopRecordingResources();
     } else {
@@ -371,6 +387,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   };
 
   const handleDeleteRecording = (index: number) => {
+      if(isReadOnly) return;
       // Confirm deletion
       if(!window.confirm("确定要删除这条录音吗？此操作将永久移除该音频文件。")) return;
       
@@ -399,6 +416,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   };
 
   const handleSave = async () => {
+    if (isReadOnly) return;
     if (!currentVisit.clientId || !currentVisit.clientName) {
       alert("请搜索并选择一个客户。");
       return;
@@ -502,6 +520,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   };
 
   const handleAIAnalyze = async () => {
+    if(isReadOnly) return;
     const rawText = editorRef.current?.innerText || currentVisit.content || '';
     if (!rawText) return;
     
@@ -517,6 +536,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   };
 
   const handleGenerateEmail = async () => {
+    if(isReadOnly) return;
     if (!currentVisit.summary) {
       alert("请先生成摘要。");
       return;
@@ -539,6 +559,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   };
 
   const handleFormat = (command: string) => {
+    if(isReadOnly) return;
     document.execCommand(command, false);
     const editor = editorRef.current;
     if (editor) {
@@ -675,7 +696,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
         <div className="flex-1 overflow-y-auto bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col">
           <div className="flex-1 overflow-y-auto">
             {paginatedVisits.map((visit, index) => {
-              const canDelete = currentUser?.role === '管理员' || (visit.ownerId && currentUser?.id === visit.ownerId);
+              const canEditVisit = canEdit(visit);
               const dateObj = new Date(visit.date);
               const day = dateObj.getDate();
               const month = dateObj.getMonth() + 1;
@@ -744,7 +765,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                          <span className="truncate max-w-[80px]">{visit.ownerName || 'Unknown'}</span>
                       </div>
                       
-                      {canDelete && (
+                      {canEditVisit ? (
                          <button
                            onClick={(e) => handleDeleteVisit(visit.id, e)}
                            className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
@@ -752,6 +773,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                          >
                            <Trash2 className="w-4 h-4" />
                          </button>
+                      ) : (
+                         <span className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 flex items-center mt-2">
+                            <Eye className="w-3 h-3 mr-1"/> 只读
+                         </span>
                       )}
                    </div>
                 </div>
@@ -809,7 +834,12 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
           <ChevronRight className="w-4 h-4 mr-1 rotate-180" /> 返回
         </button>
         <div className="flex gap-2">
-          {currentVisit.id && visits.find(v => v.id === currentVisit.id) && (
+          {isReadOnly && (
+              <span className="text-slate-400 text-xs flex items-center bg-slate-100 px-3 py-1 rounded-full mr-2">
+                  <Eye className="w-3 h-3 mr-1" /> 您仅有查看权限
+              </span>
+          )}
+          {currentVisit.id && visits.find(v => v.id === currentVisit.id) && !isReadOnly && (
             <button 
                onClick={() => currentVisit.id && handleDeleteVisit(currentVisit.id)}
                className="text-red-500 hover:bg-red-50 px-3 py-2 rounded-lg flex items-center text-sm font-medium transition-colors"
@@ -818,14 +848,16 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                <Trash2 className="w-4 h-4 mr-1" /> 删除
             </button>
           )}
-          <button 
-            onClick={handleSave}
-            disabled={isSaving}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center text-sm font-medium disabled:opacity-70"
-          >
-            {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-            {isSaving ? '保存中...' : '保存记录'}
-          </button>
+          {!isReadOnly && (
+              <button 
+                onClick={handleSave}
+                disabled={isSaving}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center text-sm font-medium disabled:opacity-70"
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                {isSaving ? '保存中...' : '保存记录'}
+              </button>
+          )}
         </div>
       </div>
 
@@ -843,10 +875,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                    <input 
                      type="text"
-                     className="w-full pl-9 pr-8 p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                     className="w-full pl-9 pr-8 p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-50 disabled:text-slate-500"
                      placeholder="搜索选择客户..."
                      value={clientSearchTerm}
-                     onFocus={() => setIsClientDropdownOpen(true)}
+                     onFocus={() => !isReadOnly && setIsClientDropdownOpen(true)}
                      onChange={(e) => {
                        setClientSearchTerm(e.target.value);
                        setIsClientDropdownOpen(true);
@@ -854,8 +886,9 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                          setCurrentVisit(prev => ({ ...prev, clientId: undefined }));
                        }
                      }}
+                     disabled={isReadOnly}
                    />
-                   {isClientDropdownOpen && (
+                   {isClientDropdownOpen && !isReadOnly && (
                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-100 rounded-lg shadow-xl z-20 max-h-60 overflow-y-auto">
                         {filteredClients.length > 0 ? (
                           filteredClients.map(client => (
@@ -884,9 +917,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                 <div>
                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">方式</label>
                    <select 
-                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm"
+                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm disabled:bg-slate-50 disabled:text-slate-500"
                      value={currentVisit.type}
                      onChange={(e: any) => setCurrentVisit(prev => ({ ...prev, type: e.target.value }))}
+                     disabled={isReadOnly}
                    >
                      <option>线下拜访</option>
                      <option>线上会议</option>
@@ -897,20 +931,23 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                 <div>
                    <div className="flex justify-between items-center mb-1">
                       <label className="block text-xs font-semibold text-slate-500 uppercase">拜访时间</label>
-                      <button 
-                        onClick={() => setCurrentVisit(prev => ({ ...prev, date: getLocalISOString() }))}
-                        className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center font-medium"
-                        title="设置为当前时间"
-                      >
-                         <RefreshCw className="w-3 h-3 mr-1" />
-                         当前时间
-                      </button>
+                      {!isReadOnly && (
+                          <button 
+                            onClick={() => setCurrentVisit(prev => ({ ...prev, date: getLocalISOString() }))}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center font-medium"
+                            title="设置为当前时间"
+                          >
+                             <RefreshCw className="w-3 h-3 mr-1" />
+                             当前时间
+                          </button>
+                      )}
                    </div>
                    <input 
                      type="datetime-local"
-                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm"
+                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm disabled:bg-slate-50 disabled:text-slate-500"
                      value={currentVisit.date || ''}
                      onChange={(e) => setCurrentVisit(prev => ({ ...prev, date: e.target.value }))}
+                     disabled={isReadOnly}
                    />
                 </div>
              </div>
@@ -923,10 +960,11 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                     <div className="relative">
                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                        <input 
-                          className="w-full pl-9 pr-3 p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                          className="w-full pl-9 pr-3 p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
                           placeholder="输入地址或会议室..."
                           value={currentVisit.location || ''}
                           onChange={(e) => setCurrentVisit(prev => ({ ...prev, location: e.target.value }))}
+                          disabled={isReadOnly}
                        />
                     </div>
                  </div>
@@ -936,19 +974,21 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                     <div>
                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">拜访对象</label>
                        <input 
-                           className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                           className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
                            value={currentVisit.clientContact || ''}
                            placeholder="姓名"
                            onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientContact: e.target.value }))}
+                           disabled={isReadOnly}
                        />
                     </div>
                     <div>
                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">职位</label>
                        <input 
-                           className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                           className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
                            value={currentVisit.clientContactRole || ''}
                            placeholder="职位"
                            onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientContactRole: e.target.value }))}
+                           disabled={isReadOnly}
                        />
                     </div>
                  </div>
@@ -958,19 +998,21 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                       <div>
                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">其他客户参与人</label>
                          <input 
-                             className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                             className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
                              value={currentVisit.clientParticipants || ''}
                              placeholder="姓名, 职位..."
                              onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientParticipants: e.target.value }))}
+                             disabled={isReadOnly}
                          />
                       </div>
                       <div>
                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">我方参与人</label>
                          <input 
-                             className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                             className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
                              value={currentVisit.ourParticipants || ''}
                              placeholder="同事姓名..."
                              onChange={(e) => setCurrentVisit(prev => ({ ...prev, ourParticipants: e.target.value }))}
+                             disabled={isReadOnly}
                          />
                       </div>
                  </div>
@@ -991,22 +1033,40 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                   {fieldDefinitions.map(field => (
                     <div key={field.id}>
                       <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">{field.label}</label>
-                      <input 
-                        type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-                        className="w-full p-2 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm"
-                        value={currentVisit.customFields?.[field.key] || ''}
-                        onChange={(e) => {
-                            let val: any = e.target.value;
-                            // Optimize: Cast number types to actual numbers
-                            if (field.type === 'number') {
-                                val = val === '' ? null : Number(val);
-                            }
-                            setCurrentVisit(prev => ({
-                              ...prev,
-                              customFields: { ...prev.customFields, [field.key]: val }
-                            }));
-                        }}
-                      />
+                      {field.type === 'select' ? (
+                         <select
+                            className="w-full p-2 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                            value={currentVisit.customFields?.[field.key] || ''}
+                            onChange={(e) => {
+                                setCurrentVisit(prev => ({
+                                  ...prev,
+                                  customFields: { ...prev.customFields, [field.key]: e.target.value }
+                                }));
+                            }}
+                            disabled={isReadOnly}
+                         >
+                            <option value="">请选择</option>
+                            {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                         </select>
+                      ) : (
+                          <input 
+                            type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+                            className="w-full p-2 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                            value={currentVisit.customFields?.[field.key] || ''}
+                            onChange={(e) => {
+                                let val: any = e.target.value;
+                                // Optimize: Cast number types to actual numbers
+                                if (field.type === 'number') {
+                                    val = val === '' ? null : Number(val);
+                                }
+                                setCurrentVisit(prev => ({
+                                  ...prev,
+                                  customFields: { ...prev.customFields, [field.key]: val }
+                                }));
+                            }}
+                            disabled={isReadOnly}
+                          />
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1031,18 +1091,20 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                            </div>
                            <div className="flex items-center">
                               <audio src={rec.url} controls className="h-6 w-32 md:w-48 mr-2" />
-                              <button 
-                                type="button"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleDeleteRecording(index);
-                                }} 
-                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all ml-3 flex-shrink-0 z-10 relative cursor-pointer"
-                                title="删除此录音"
-                              >
-                                 <Trash2 className="w-4 h-4" />
-                              </button>
+                              {!isReadOnly && (
+                                  <button 
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleDeleteRecording(index);
+                                    }} 
+                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all ml-3 flex-shrink-0 z-10 relative cursor-pointer"
+                                    title="删除此录音"
+                                  >
+                                     <Trash2 className="w-4 h-4" />
+                                  </button>
+                              )}
                            </div>
                         </div>
                     ))}
@@ -1080,30 +1142,34 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                 <div className="flex items-center gap-1 p-2 border-b border-slate-100 bg-slate-50">
                     <button 
                       onClick={(e) => { e.preventDefault(); handleFormat('bold'); }}
-                      className="p-1.5 rounded hover:bg-slate-200 text-slate-600" title="Bold"
+                      className={`p-1.5 rounded text-slate-600 ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Bold"
                       type="button"
+                      disabled={isReadOnly}
                     >
                       <Bold className="w-4 h-4"/>
                     </button>
                     <button 
                       onClick={(e) => { e.preventDefault(); handleFormat('italic'); }}
-                      className="p-1.5 rounded hover:bg-slate-200 text-slate-600" title="Italic"
+                      className={`p-1.5 rounded text-slate-600 ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Italic"
                       type="button"
+                      disabled={isReadOnly}
                     >
                       <Italic className="w-4 h-4"/>
                     </button>
                     <div className="w-px h-4 bg-slate-300 mx-1"></div>
                     <button 
                       onClick={(e) => { e.preventDefault(); handleFormat('insertUnorderedList'); }}
-                      className="p-1.5 rounded hover:bg-slate-200 text-slate-600" title="Bullet List"
+                      className={`p-1.5 rounded text-slate-600 ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Bullet List"
                       type="button"
+                      disabled={isReadOnly}
                     >
                       <List className="w-4 h-4"/>
                     </button>
                     <button 
                       onClick={(e) => { e.preventDefault(); handleFormat('insertOrderedList'); }}
-                      className="p-1.5 rounded hover:bg-slate-200 text-slate-600" title="Ordered List"
+                      className={`p-1.5 rounded text-slate-600 ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Ordered List"
                       type="button"
+                      disabled={isReadOnly}
                     >
                       <ListOrdered className="w-4 h-4"/>
                     </button>
@@ -1112,9 +1178,9 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                 {/* Editable Area */}
                 <div 
                   ref={editorRef}
-                  contentEditable
+                  contentEditable={!isReadOnly}
                   suppressContentEditableWarning
-                  className="flex-1 p-4 bg-white outline-none overflow-y-auto text-slate-900 leading-relaxed text-base [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none"
+                  className={`flex-1 p-4 bg-white outline-none overflow-y-auto text-slate-900 leading-relaxed text-base [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none ${isReadOnly ? 'cursor-default bg-slate-50' : ''}`}
                   onInput={(e) => {
                      // Sync state on manual input - capture value immediately to prevent stale event issues
                      const newContent = e.currentTarget.innerHTML;
@@ -1125,12 +1191,12 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                      const newContent = e.currentTarget.innerHTML;
                      setCurrentVisit(prev => ({...prev, content: newContent}));
                   }}
-                  data-placeholder="开始输入，或点击右下角麦克风进行实时语音转写..."
+                  data-placeholder={isReadOnly ? "无内容" : "开始输入，或点击右下角麦克风进行实时语音转写..."}
                 />
              </div>
              
              {/* Floating Record Button - Hide in full screen mode to avoid clutter or overlap issues */}
-             {!expandedSection && (
+             {!expandedSection && !isReadOnly && (
                <button 
                  onClick={handleVoiceToggle}
                  className={`absolute bottom-4 right-4 p-4 rounded-full shadow-lg transition-all transform hover:scale-105 ${
@@ -1153,13 +1219,15 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
               <Sparkles className="w-5 h-5 mr-2 text-indigo-600" /> AI 智能洞察
             </h3>
             <div className="flex space-x-2">
-               <button 
-                 onClick={handleAIAnalyze}
-                 disabled={isAnalyzing || !currentVisit.content}
-                 className="text-xs bg-white border border-indigo-100 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-50 disabled:opacity-50"
-               >
-                 {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin"/> : '生成分析'}
-               </button>
+               {!isReadOnly && (
+                   <button 
+                     onClick={handleAIAnalyze}
+                     disabled={isAnalyzing || !currentVisit.content}
+                     className="text-xs bg-white border border-indigo-100 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-50 disabled:opacity-50"
+                   >
+                     {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin"/> : '生成分析'}
+                   </button>
+               )}
                <button 
                   onClick={() => setExpandedSection(expandedSection === 'ai' ? null : 'ai')}
                   className="text-slate-400 hover:text-indigo-600 p-1.5 rounded hover:bg-slate-200"
@@ -1218,13 +1286,15 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
               <div className="pt-4 border-t border-slate-200">
                 <div className="flex justify-between items-center mb-2">
                    <h4 className="text-xs font-bold text-slate-500 uppercase">跟进邮件草稿</h4>
-                   <button 
-                      onClick={handleGenerateEmail}
-                      disabled={isGeneratingEmail}
-                      className="text-xs text-indigo-600 hover:underline disabled:opacity-50"
-                   >
-                     {isGeneratingEmail ? '起草中...' : '生成邮件'}
-                   </button>
+                   {!isReadOnly && (
+                       <button 
+                          onClick={handleGenerateEmail}
+                          disabled={isGeneratingEmail}
+                          className="text-xs text-indigo-600 hover:underline disabled:opacity-50"
+                       >
+                         {isGeneratingEmail ? '起草中...' : '生成邮件'}
+                       </button>
+                   )}
                 </div>
                 {currentVisit.followUpDraft && (
                   <div className="relative">

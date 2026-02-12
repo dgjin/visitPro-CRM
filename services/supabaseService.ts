@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Client, Visit, User, Department, Role } from '../types';
+import { Client, Visit, User, Department, Role, LoginHistory } from '../types';
 
 let supabase: SupabaseClient | null = null;
 let isEnvInitialized = false;
@@ -336,6 +336,26 @@ export const deleteUser = async (id: string) => {
   if (error) {
     console.error('Error deleting user:', error);
   }
+};
+
+// --- Login History ---
+export const fetchLoginHistory = async (userId: string): Promise<LoginHistory[]> => {
+  const client = getSupabase();
+  if (!client) return [];
+  
+  const { data, error } = await client
+      .from('login_history')
+      .select('*')
+      .eq('user_id', userId)
+      .order('login_at', { ascending: false })
+      .limit(50); // Limit to last 50 entries
+      
+  if (error) {
+      // Silently fail if table doesn't exist yet to prevent crashing the UI
+      console.warn("Fetch login history failed:", error.message);
+      return [];
+  }
+  return data as LoginHistory[];
 };
 
 // --- System ---

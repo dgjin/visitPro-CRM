@@ -123,6 +123,15 @@ export interface User {
   status?: 'active' | 'inactive';
   role?: string; // Legacy string or display name
   customFields?: Record<string, any>;
+  last_login_at?: string; // Add last login time
+}
+
+export interface LoginHistory {
+  id: string;
+  user_id: string;
+  login_at: string;
+  ip_address?: string;
+  user_agent?: string;
 }
 
 export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES';

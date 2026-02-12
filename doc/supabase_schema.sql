@@ -30,6 +30,7 @@ create table if not exists public.users (
     "departmentId" text references public.departments("id"),
     "status" text default 'active',
     "customFields" jsonb default '{}'::jsonb,
+    "last_login_at" timestamp with time zone,
     "created_at" timestamp with time zone default timezone('utc'::text, now())
 );
 
@@ -74,12 +75,22 @@ create table if not exists public.visits (
     "created_at" timestamp with time zone default timezone('utc'::text, now())
 );
 
+-- 新增：登录历史表
+create table if not exists public.login_history (
+    "id" uuid primary key default uuid_generate_v4(),
+    "user_id" text references public.users("id") on delete cascade,
+    "login_at" timestamp with time zone default timezone('utc'::text, now()),
+    "ip_address" text,
+    "user_agent" text
+);
+
 -- 3. 开启 RLS (行级安全)
 alter table public.roles enable row level security;
 alter table public.departments enable row level security;
 alter table public.users enable row level security;
 alter table public.clients enable row level security;
 alter table public.visits enable row level security;
+alter table public.login_history enable row level security;
 
 -- 4. 宽松的 RLS 策略 (允许所有操作，生产环境请修改)
 create policy "Enable all access for roles" on public.roles for all using (true) with check (true);
@@ -87,10 +98,12 @@ create policy "Enable all access for departments" on public.departments for all 
 create policy "Enable all access for users" on public.users for all using (true) with check (true);
 create policy "Enable all access for clients" on public.clients for all using (true) with check (true);
 create policy "Enable all access for visits" on public.visits for all using (true) with check (true);
+create policy "Enable all access for login_history" on public.login_history for all using (true) with check (true);
 
 -- 5. 索引
 create index if not exists idx_users_dept on public.users ("departmentId");
 create index if not exists idx_depts_parent on public.departments ("parentId");
+create index if not exists idx_login_history_user on public.login_history ("user_id");
 
 -- ==========================================
 -- 6. 字段补全 (确保老表也有新字段)
@@ -117,6 +130,7 @@ alter table public.visits add column if not exists "recordings" jsonb default '[
 
 -- Users 表
 alter table public.users add column if not exists "phone" text;
+alter table public.users add column if not exists "last_login_at" timestamp with time zone;
 
 -- ==========================================
 -- 7. 高级功能：API 缓存刷新函数
