@@ -2,30 +2,65 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Client, Visit, User, Department, Role } from '../types';
 
 let supabase: SupabaseClient | null = null;
+let isEnvInitialized = false;
 
 // Keys for localStorage
 const LS_URL_KEY = 'visitpro_supabase_url';
 const LS_ANON_KEY = 'visitpro_supabase_key';
 
-export const initSupabase = () => {
-  // Priority: Process Env -> Local Storage
+export const isConfiguredFromEnv = () => {
   const envUrl = process.env.SUPABASE_URL;
   const envKey = process.env.SUPABASE_KEY;
-  
+  // Check if they exist and are not literally the string "undefined" (vite define artifact)
+  return !!(envUrl && envKey && envUrl !== "undefined" && envKey !== "undefined");
+};
+
+export const initSupabase = () => {
+  const envUrl = process.env.SUPABASE_URL;
+  const envKey = process.env.SUPABASE_KEY;
+  const hasEnvVars = isConfiguredFromEnv();
+
+  // 1. FORCE ENV CONFIGURATION
+  // If Env vars are present, we MUST use them. We ignore LocalStorage completely.
+  if (hasEnvVars) {
+    // If supabase instance is missing OR it wasn't created from env (e.g. was LS before), recreate it.
+    if (!supabase || !isEnvInitialized) {
+      try {
+        console.log('🚀 [System] Detected Environment Variables. Forcing Supabase Connection...');
+        supabase = createClient(envUrl!, envKey!);
+        isEnvInitialized = true;
+      } catch (e) {
+        console.error('❌ [System] Failed to initialize Supabase from Env:', e);
+        return null;
+      }
+    }
+    return supabase;
+  }
+
+  // 2. Fallback: Local Storage
+  // If we previously used Env, but now they are gone (unlikely in runtime but possible in dev), reset.
+  if (isEnvInitialized && !hasEnvVars) {
+      supabase = null;
+      isEnvInitialized = false;
+  }
+
   const localUrl = localStorage.getItem(LS_URL_KEY);
   const localKey = localStorage.getItem(LS_ANON_KEY);
 
-  const url = envUrl || localUrl;
-  const key = envKey || localKey;
-
-  if (url && key) {
+  if (localUrl && localKey) {
     try {
-      supabase = createClient(url, key);
-      console.log('Supabase initialized');
+      if (!supabase) {
+        supabase = createClient(localUrl, localKey);
+        console.log('⚡ [System] Connected to Supabase via Local Storage.');
+      }
     } catch (e) {
-      console.error('Failed to init Supabase', e);
+      console.error('Failed to init Supabase from Local Storage', e);
     }
+  } else {
+    // Reset if no config found
+    supabase = null;
   }
+  
   return supabase;
 };
 
@@ -34,16 +69,49 @@ export const getSupabase = () => {
   return supabase;
 };
 
+export const checkConnection = async (): Promise<{ success: boolean; message?: string }> => {
+    const client = getSupabase();
+    if (!client) return { success: false, message: "Supabase client not initialized" };
+    
+    try {
+        // Perform a lightweight HEAD request to check connectivity
+        const { error, count } = await client.from('clients').select('*', { count: 'exact', head: true });
+        
+        if (error) {
+            console.error("Connection Check Failed:", error);
+            return { success: false, message: `Error ${error.code}: ${error.message}` };
+        }
+        return { success: true };
+    } catch (e: any) {
+        console.error("Connection Check Exception:", e);
+        return { success: false, message: e.message || "Network error" };
+    }
+};
+
 // Configuration Helpers
-export const getStoredConfig = () => ({
-  url: localStorage.getItem(LS_URL_KEY) || '',
-  key: localStorage.getItem(LS_ANON_KEY) || ''
-});
+export const getStoredConfig = () => {
+  if (isConfiguredFromEnv()) {
+      return {
+          url: process.env.SUPABASE_URL!,
+          key: process.env.SUPABASE_KEY || ''
+      };
+  }
+  return {
+    url: localStorage.getItem(LS_URL_KEY) || '',
+    key: localStorage.getItem(LS_ANON_KEY) || ''
+  };
+};
 
 export const saveConfig = (url: string, key: string) => {
+  if (isConfiguredFromEnv()) {
+      console.warn("Attempted to save config while Env vars are active. Ignoring.");
+      return;
+  }
   localStorage.setItem(LS_URL_KEY, url);
   localStorage.setItem(LS_ANON_KEY, key);
-  initSupabase(); // Re-init
+  
+  supabase = null; 
+  initSupabase(); 
 };
 
 /**
@@ -277,7 +345,17 @@ export const reloadSchemaCache = async () => {
   
   const { error } = await client.rpc('reload_schema_cache');
   if (error) {
-    console.error("Failed to reload schema cache", error);
+    console.error("Failed to reload schema cache via RPC:", error);
+    
+    // Check specifically for permissions or missing function
+    if (error.code === 'PGRST202' || error.message?.includes('function') || error.message?.includes('exist')) {
+        throw new Error("数据库函数 'reload_schema_cache' 不存在。\n请在 Supabase SQL 编辑器中运行数据库创建脚本。");
+    }
+    
+    if (error.code === '42501' || error.message?.includes('permission')) {
+        throw new Error("权限不足。请在 Supabase SQL 编辑器中运行以下命令以开放 API 调用权限:\nGRANT EXECUTE ON FUNCTION public.reload_schema_cache() TO anon, authenticated;");
+    }
+    
     throw error;
   }
 };

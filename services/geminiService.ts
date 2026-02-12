@@ -6,11 +6,17 @@ const AI_MODEL_KEY = 'visitpro_ai_model';
 const DEEPSEEK_KEY_KEY = 'visitpro_deepseek_key';
 
 export const getAIConfig = () => {
+  // STRICT ENV PRIORITY
+  // Check process.env first for all keys. 
+  // If present in env, it overrides any local setting.
+  const envDeepSeekKey = process.env.DEEPSEEK_API_KEY;
+
   return {
     model: localStorage.getItem(AI_MODEL_KEY) || 'gemini',
-    // The API key must be obtained exclusively from the environment variable process.env.API_KEY
+    // API key exclusively from process.env for Gemini
     geminiKey: process.env.API_KEY, 
-    deepseekKey: localStorage.getItem(DEEPSEEK_KEY_KEY) || ''
+    // Deepseek: Env > LocalStorage
+    deepseekKey: envDeepSeekKey || localStorage.getItem(DEEPSEEK_KEY_KEY) || ''
   };
 };
 

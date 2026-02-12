@@ -14,7 +14,7 @@ import {
   Users, 
   AlertTriangle, 
   CheckCircle,
-  ArrowRight,
+  ArrowRight, 
   Trophy,
   User as UserIcon,
   X,
@@ -78,46 +78,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ visits, clients, users = [
              const owner = users.find(u => u.id === v.ownerId);
              const path = getDeptPath(owner?.departmentId);
 
+             // Path Structure:
+             // Index 0: Root (Level 1) (e.g. 总部)
+             // Index 1: Level 2 (e.g. 销售部)
+             // Index 2: Level 3 (e.g. 华北区)
+             // Index 3: Level 4 (e.g. 北京分公司)
+
              if (rankingDimension === 'INSTITUTION') {
-                 // Level 1 Department (path[1]) - Assuming path[0] is Root/Headquarters
-                 if (path.length >= 2) {
+                 // Target: Level 2 Department (Index 1)
+                 if (path.length > 1) {
                      key = path[1].id;
                      name = path[1].name;
-                 } else if (path.length === 1) {
-                     // Fallback to Root if no sub-departments
-                     key = path[0].id;
-                     name = path[0].name;
+                 } else if (path.length > 0) {
+                     // Fallback to the specific department if hierarchy is shallow
+                     const last = path[path.length - 1];
+                     key = last.id;
+                     name = last.name;
                  } else {
                      key = 'unknown_inst';
                      name = '未知机构';
                  }
              } else if (rankingDimension === 'TEAM') {
-                 // Level 2 + Level 3 + Level 4 Department
-                 // path[0]=Root, path[1]=L1, path[2]=L2, path[3]=L3, path[4]=L4
-                 if (path.length >= 3) {
-                     // Start with Level 2 (path[2])
-                     key = path[2].id;
-                     name = path[2].name;
-
-                     if (path.length >= 4) {
-                         // Add Level 3
-                         key += `_${path[3].id}`;
-                         name += ` - ${path[3].name}`;
-                         
-                         if (path.length >= 5) {
-                             // Add Level 4
-                             key += `_${path[4].id}`;
-                             name += ` - ${path[4].name}`;
-                         }
-                     }
-                 } else if (path.length === 2) {
-                     // Fallback to Level 1 (e.g. path[1]) if tree is shallow
-                     key = path[1].id;
-                     name = path[1].name;
-                 } else if (path.length === 1) {
-                     // Fallback to Root
-                     key = path[0].id;
-                     name = path[0].name;
+                 // Target: Level 2 - Level 3 - Level 4 (Indices 1, 2, 3)
+                 if (path.length > 1) {
+                     // Extract departments starting from Level 2 up to Level 4
+                     const relevantParts = path.slice(1, 4); 
+                     key = relevantParts.map(d => d.id).join('_');
+                     name = relevantParts.map(d => d.name).join(' - ');
+                 } else if (path.length > 0) {
+                     // Fallback
+                     const last = path[path.length - 1];
+                     key = last.id;
+                     name = last.name;
                  } else {
                      key = 'unknown_team';
                      name = '未知团队';

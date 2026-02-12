@@ -8,7 +8,7 @@ import { UserManager } from './components/UserManager';
 import { DepartmentManager } from './components/DepartmentManager';
 import { RoleManager } from './components/RoleManager';
 import { ViewState, Client, Visit, User, ClientStatus, Sentiment, CustomFieldDefinition, Department, Role } from './types';
-import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles } from './services/supabaseService';
+import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection } from './services/supabaseService';
 
 // Mock Data Definitions (Only used as fallback when NO DB connection exists)
 const MOCK_ROLES: Role[] = [
@@ -223,6 +223,7 @@ const App: React.FC = () => {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [connectionMsg, setConnectionMsg] = useState<string | null>(null);
   
   // Navigation State
   const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
@@ -248,33 +249,65 @@ const App: React.FC = () => {
   // Unified Data Loading Function
   const refreshData = useCallback(async () => {
     setIsLoading(true);
+    setConnectionMsg(null);
+
+    // 1. Force initialization (Will prefer Env if available)
     const supabase = initSupabase();
+    const isEnvMode = isConfiguredFromEnv();
     
     if (supabase) {
-      console.log("Loading data from Supabase...");
-      const [dbClients, dbVisits, dbUsers, dbDepts, dbRoles] = await Promise.all([
-        fetchClients(),
-        fetchVisits(),
-        fetchUsers(),
-        fetchDepartments(),
-        fetchRoles()
-      ]);
+      console.log(`[App] Supabase initialized. Mode: ${isEnvMode ? 'ENV (Forced)' : 'Local Storage'}`);
       
-      setClients(dbClients || []);
-      setVisits(dbVisits || []);
-      setUsers(dbUsers || []);
-      setDepartments(dbDepts || []);
-      setRoles(dbRoles || []);
-      
-      if (dbUsers && dbUsers.length > 0) {
-         const found = dbUsers.find(u => u.role === '管理员') || dbUsers[0];
-         setCurrentUser(found);
-      } else {
-         console.warn("No users found in DB. Using default local user identity.");
+      // 2. Explicit Connection Check
+      if (isEnvMode) {
+          const check = await checkConnection();
+          if (!check.success) {
+              const msg = `⚠️ 环境变量配置已检测到，但数据库连接失败。\n\n错误: ${check.message}\n请检查 SUPABASE_URL 和 SUPABASE_KEY 是否正确。`;
+              console.error(msg);
+              alert(msg);
+              setConnectionMsg("数据库连接失败 (ENV)");
+          } else {
+              setConnectionMsg("已通过环境变量连接数据库 ✅");
+              // Auto-clear success message after 3s
+              setTimeout(() => setConnectionMsg(null), 3000);
+          }
+      }
+
+      try {
+        const [dbClients, dbVisits, dbUsers, dbDepts, dbRoles] = await Promise.all([
+            fetchClients(),
+            fetchVisits(),
+            fetchUsers(),
+            fetchDepartments(),
+            fetchRoles()
+        ]);
+        
+        // Handle "Null" returns from fetch errors
+        if (dbClients === null && isEnvMode) {
+            console.warn("[App] Fetch returned null while in Env mode. Check RLS policies.");
+        }
+
+        setClients(dbClients || []);
+        setVisits(dbVisits || []);
+        setUsers(dbUsers || []);
+        setDepartments(dbDepts || []);
+        setRoles(dbRoles || []);
+        
+        if (dbUsers && dbUsers.length > 0) {
+            // Find admin or default to first
+            const found = dbUsers.find(u => u.role === '管理员') || dbUsers[0];
+            setCurrentUser(found);
+        } else if (isEnvMode) {
+             // Connected but empty users table?
+             console.log("[App] Connected to DB but 'users' table is empty.");
+        }
+      } catch (err) {
+         console.error("Failed to fetch data from Supabase:", err);
+         alert("Connected to Supabase but failed to fetch data. Check browser console for RLS or table errors.");
       }
       
     } else {
-      console.log("Supabase not configured. Using Mock Data.");
+      console.log("Supabase not configured (No Env or LocalStorage). Using Mock Data.");
       setClients(MOCK_CLIENTS);
       setVisits(MOCK_VISITS);
       setUsers(MOCK_USERS_LIST);
@@ -335,6 +368,16 @@ const App: React.FC = () => {
   return (
     <>
       <style>{themeStyles}</style>
+      
+      {/* Toast Notification for Connection Status */}
+      {connectionMsg && (
+          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-fade-in-down">
+             <div className={`px-4 py-2 rounded-lg shadow-lg text-sm font-medium flex items-center ${connectionMsg.includes('失败') ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white'}`}>
+                {connectionMsg}
+             </div>
+          </div>
+      )}
+
       <Layout 
         currentView={currentView} 
         setView={setView} 

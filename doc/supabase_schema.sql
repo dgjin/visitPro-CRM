@@ -129,5 +129,10 @@ begin
 end;
 $$ language plpgsql security definer;
 
+-- 【关键修复】授予 API 角色执行该函数的权限
+GRANT EXECUTE ON FUNCTION public.reload_schema_cache() TO anon;
+GRANT EXECUTE ON FUNCTION public.reload_schema_cache() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reload_schema_cache() TO service_role;
+
 -- 立即刷新一次
 notify pgrst, 'reload config';
