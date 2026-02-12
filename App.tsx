@@ -9,7 +9,7 @@ import { DepartmentManager } from './components/DepartmentManager';
 import { RoleManager } from './components/RoleManager';
 import { VoiceAssistant } from './components/VoiceAssistant'; // Import VoiceAssistant
 import { ViewState, Client, Visit, User, ClientStatus, Sentiment, CustomFieldDefinition, Department, Role } from './types';
-import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection } from './services/supabaseService';
+import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection, upsertUser } from './services/supabaseService';
 
 // Mock Data Definitions (Only used as fallback when NO DB connection exists)
 const MOCK_ROLES: Role[] = [
@@ -215,7 +215,7 @@ const App: React.FC = () => {
   
   // App State
   const [currentUser, setCurrentUser] = useState<User>(MOCK_USER);
-  const [theme, setTheme] = useState(() => localStorage.getItem('visitpro_theme') || 'indigo');
+  const [theme, setTheme] = useState('indigo');
   
   // Data States
   const [clients, setClients] = useState<Client[]>([]);
@@ -247,9 +247,14 @@ const App: React.FC = () => {
     localStorage.setItem('visitpro_custom_fields', JSON.stringify(fieldDefinitions));
   }, [fieldDefinitions]);
 
+  // Apply User Theme when user changes
   useEffect(() => {
-    localStorage.setItem('visitpro_theme', theme);
-  }, [theme]);
+    if (currentUser && currentUser.themePreference) {
+      setTheme(currentUser.themePreference);
+    } else {
+      setTheme('indigo'); // Default fallback
+    }
+  }, [currentUser]);
 
   // Unified Data Loading Function
   const refreshData = useCallback(async () => {
@@ -302,9 +307,6 @@ const App: React.FC = () => {
             // Find admin or default to first
             const found = dbUsers.find(u => u.role === '管理员') || dbUsers[0];
             setCurrentUser(found);
-        } else if (isEnvMode) {
-             // Connected but empty users table?
-             console.log("[App] Connected to DB but 'users' table is empty.");
         }
       } catch (err) {
          console.error("Failed to fetch data from Supabase:", err);
@@ -347,6 +349,26 @@ const App: React.FC = () => {
       setView('DASHBOARD');
     }
   }, [currentUser, currentView, roles]);
+
+  // User Switch Handler - Enhanced to apply theme correctly
+  const handleSwitchUser = (user: User) => {
+      setCurrentUser(user);
+      // Theme effect will run automatically due to dependency on currentUser
+  };
+
+  // User Profile Update Handler
+  const handleUpdateUserProfile = async (updatedUser: User) => {
+      // 1. Update DB
+      await upsertUser(updatedUser);
+      
+      // 2. Update Local State (Users List)
+      setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+      
+      // 3. Update Current User
+      // Important: We update currentUser so the app reflects changes immediately.
+      // The theme effect will follow if themePreference changed.
+      setCurrentUser(updatedUser);
+  };
 
   const handleViewVisit = (visitId: string) => {
     setSelectedVisitId(visitId);
@@ -399,7 +421,11 @@ const App: React.FC = () => {
       
       // 5. Switch Theme
       if (cmd.action === 'SWITCH_THEME' && cmd.parameters?.theme) {
-          setTheme(cmd.parameters.theme);
+          // For voice commands, we update the user preference immediately
+          if (currentUser) {
+              const updatedUser = { ...currentUser, themePreference: cmd.parameters.theme };
+              handleUpdateUserProfile(updatedUser);
+          }
       }
   };
 
@@ -438,7 +464,8 @@ const App: React.FC = () => {
         setView={setView} 
         user={currentUser}
         allUsers={users}
-        onSwitchUser={setCurrentUser}
+        onSwitchUser={handleSwitchUser}
+        onUpdateUser={handleUpdateUserProfile}
         currentTheme={theme}
         setTheme={setTheme}
         roles={roles}

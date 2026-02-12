@@ -258,7 +258,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
               {aiModel === 'deepseek' && (
                   <div className="animate-fade-in-down">
-                    <label className="block text-sm font-medium text-slate-700 mb-1">DeepSeek API Key</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                        DeepSeek API Key
+                        <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-800 text-xs ml-2 font-normal">
+                            (获取 Key)
+                        </a>
+                    </label>
                     {isDeepSeekEnvConfigured ? (
                         <div className="p-2 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center text-sm text-emerald-800">
                             <CheckCircle className="w-4 h-4 mr-2" />

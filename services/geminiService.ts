@@ -22,23 +22,44 @@ export const getAIConfig = () => {
 
 export const callDeepSeek = async (messages: any[], jsonMode: boolean = false) => {
   const config = getAIConfig();
-  if (!config.deepseekKey) throw new Error("DeepSeek API Key not configured");
+  if (!config.deepseekKey) throw new Error("DeepSeek API Key not configured. Please configure it in Settings.");
   
-  const response = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.deepseekKey}`
-      },
-      body: JSON.stringify({
-          model: "deepseek-chat",
-          messages: messages,
-          response_format: jsonMode ? { type: "json_object" } : undefined
-      })
-  });
-  const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.choices[0].message.content;
+  try {
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.deepseekKey}`
+        },
+        body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: messages,
+            response_format: jsonMode ? { type: "json_object" } : undefined,
+            temperature: 1.0
+        })
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        let errorMsg = `DeepSeek API Error: ${response.status}`;
+        try {
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.error && errorJson.error.message) {
+                errorMsg = errorJson.error.message;
+            }
+        } catch (e) {
+            // ignore parse error, use status text
+            if (response.statusText) errorMsg += ` ${response.statusText}`;
+        }
+        throw new Error(errorMsg);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+  } catch (error: any) {
+    console.error("DeepSeek Request Failed:", error);
+    throw error;
+  }
 };
 
 /**

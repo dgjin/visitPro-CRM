@@ -166,7 +166,7 @@ export const upsertClient = async (clientData: Client) => {
             equityStructure, 
             subsidiaries, 
             financialAnalysis, 
-            supplyChainInfo,
+            supplyChainInfo, 
             ownerId, 
             ownerName,
             ...basicData 
@@ -231,7 +231,7 @@ export const upsertVisit = async (visitData: Visit) => {
               ownerId, 
               ownerName, 
               location, 
-              clientContact,
+              clientContact, 
               clientContactRole,
               clientParticipants, 
               ourParticipants, 
@@ -308,18 +308,26 @@ export const fetchUsers = async (): Promise<User[] | null> => {
   if (!client) return null;
   const { data, error } = await client.from('users').select('*');
   if (error) return null;
-  return data as User[];
+  
+  // Map snake_case DB columns to camelCase JS properties
+  return data.map((u: any) => ({
+      ...u,
+      themePreference: u.theme_preference
+  })) as User[];
 };
 
 export const upsertUser = async (userData: User) => {
   const client = getSupabase();
   if (!client) return;
   
-  // Clean up user data to match DB schema (remove UI-only fields like 'role')
-  // The 'role' field in the User type is for display convenience, but the DB uses 'roleId'.
-  const { role, ...dbUser } = userData;
+  // Map camelCase JS properties to snake_case DB columns
+  // remove UI-only fields like 'role'
+  const { role, themePreference, ...rest } = userData;
+  
   const optimizedUser = {
-      ...dbUser,
+      ...rest,
+      // Map themePreference to theme_preference
+      ...(themePreference !== undefined ? { theme_preference: themePreference } : {}),
       customFields: cleanCustomFields(userData.customFields)
   };
   

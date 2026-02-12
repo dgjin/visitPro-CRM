@@ -124,6 +124,8 @@ export interface User {
   role?: string; // Legacy string or display name
   customFields?: Record<string, any>;
   last_login_at?: string; // Add last login time
+  themePreference?: string; // Stored theme preference
+  password?: string; // Simple password field for demo
 }
 
 export interface LoginHistory {
@@ -132,6 +134,15 @@ export interface LoginHistory {
   login_at: string;
   ip_address?: string;
   user_agent?: string;
+}
+
+export interface Notification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  timestamp: number;
+  read: boolean;
 }
 
 export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES';

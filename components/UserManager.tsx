@@ -131,14 +131,26 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
     await deleteUser(id);
   };
 
-  const formatDateTime = (iso?: string) => {
-      if (!iso) return '-';
-      return new Date(iso).toLocaleString('zh-CN', {
-          month: 'numeric',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-      });
+  const formatLastLogin = (iso?: string) => {
+      if (!iso) return <span className="text-slate-400">从未登录</span>;
+      
+      const date = new Date(iso);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffSec = Math.floor(diffMs / 1000);
+      const diffMin = Math.floor(diffSec / 60);
+      const diffHour = Math.floor(diffMin / 60);
+      const diffDay = Math.floor(diffHour / 24);
+
+      let text = '';
+      if (diffSec < 60) text = '刚刚';
+      else if (diffMin < 60) text = `${diffMin} 分钟前`;
+      else if (diffHour < 24) text = `${diffHour} 小时前`;
+      else if (diffDay === 1) text = '昨天';
+      else if (diffDay < 7) text = `${diffDay} 天前`;
+      else text = date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+      return <span title={date.toLocaleString('zh-CN')}>{text}</span>;
   };
 
   return (
@@ -195,7 +207,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                                 <img 
                                     src={user.avatarUrl} 
                                     alt="" 
-                                    className="w-10 h-10 rounded-full mr-3 object-cover border border-slate-100 bg-slate-50" 
+                                    className="w-10 h-10 rounded-full mr-3 object-cover border border-slate-100 bg-slate-50 flex-shrink-0" 
                                     onError={(e) => {
                                         (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${user.name}&background=random`;
                                     }}
@@ -213,8 +225,8 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                                 {roleName}
                                 </span>
                             </td>
-                            <td className="px-6 py-4 text-slate-500 font-mono text-xs">
-                                {formatDateTime(user.last_login_at)}
+                            <td className="px-6 py-4 text-slate-500 font-medium text-xs">
+                                {formatLastLogin(user.last_login_at)}
                             </td>
                             <td className="px-6 py-4">
                                 <span className={`inline-block w-2 h-2 rounded-full mr-2 ${user.status === 'inactive' ? 'bg-slate-400' : 'bg-emerald-500'}`}></span>

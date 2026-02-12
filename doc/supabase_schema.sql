@@ -1,3 +1,4 @@
+
 -- VisitPro CRM 数据库初始化脚本
 -- 建议在 Supabase SQL Editor 中直接运行此脚本
 
@@ -31,6 +32,8 @@ create table if not exists public.users (
     "status" text default 'active',
     "customFields" jsonb default '{}'::jsonb,
     "last_login_at" timestamp with time zone,
+    "theme_preference" text, -- 新增：用户主题偏好
+    "password" text, -- 新增：用户密码 (Demo用途，生产环境应使用 Supabase Auth)
     "created_at" timestamp with time zone default timezone('utc'::text, now())
 );
 
@@ -128,9 +131,22 @@ alter table public.visits add column if not exists "ourParticipants" text;
 alter table public.visits add column if not exists "recordingData" text;
 alter table public.visits add column if not exists "recordings" jsonb default '[]'::jsonb;
 
--- Users 表
-alter table public.users add column if not exists "phone" text;
-alter table public.users add column if not exists "last_login_at" timestamp with time zone;
+-- Users 表 - 包含个性化设置字段
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_name = 'users' and column_name = 'phone') then
+    alter table public.users add column "phone" text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name = 'users' and column_name = 'last_login_at') then
+    alter table public.users add column "last_login_at" timestamp with time zone;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name = 'users' and column_name = 'theme_preference') then
+    alter table public.users add column "theme_preference" text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name = 'users' and column_name = 'password') then
+    alter table public.users add column "password" text;
+  end if;
+end $$;
 
 -- ==========================================
 -- 7. 高级功能：API 缓存刷新函数
