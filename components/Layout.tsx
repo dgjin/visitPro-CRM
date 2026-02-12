@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ViewState, User, Role } from '../types';
 import { 
   LayoutDashboard, 
@@ -15,7 +15,9 @@ import {
   ChevronUp,
   Check,
   Palette,
-  Handshake
+  Handshake,
+  Search as SearchIcon,
+  ArrowRight
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -54,8 +56,13 @@ export const Layout: React.FC<LayoutProps> = ({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   
+  // Command Palette State
+  const [isCommandOpen, setIsCommandOpen] = useState(false);
+  const [commandSearch, setCommandSearch] = useState('');
+  
   const userMenuRef = useRef<HTMLDivElement>(null);
   const themeMenuRef = useRef<HTMLDivElement>(null);
+  const commandInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -70,8 +77,57 @@ export const Layout: React.FC<LayoutProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Command Palette Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandOpen(prev => !prev);
+      }
+      if (e.key === 'Escape') {
+        setIsCommandOpen(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Focus input when command palette opens
+  useEffect(() => {
+    if (isCommandOpen) {
+      setTimeout(() => commandInputRef.current?.focus(), 100);
+      setCommandSearch('');
+    }
+  }, [isCommandOpen]);
+
+  // Filtered Commands
+  const filteredCommands = useMemo(() => {
+    const term = commandSearch.toLowerCase();
+    
+    const navs = [
+      { label: 'Go to Dashboard (仪表盘)', view: 'DASHBOARD', icon: LayoutDashboard },
+      { label: 'Go to Clients (客户管理)', view: 'CLIENTS', icon: Users },
+      { label: 'Go to Visits (拜访记录)', view: 'VISITS', icon: Briefcase },
+      { label: 'Go to Users (用户管理)', view: 'USERS', icon: UserCog, adminOnly: true },
+      { label: 'Go to Departments (部门管理)', view: 'DEPARTMENTS', icon: Network, adminOnly: true },
+      { label: 'Go to Roles (角色管理)', view: 'ROLES', icon: ShieldCheck, adminOnly: true },
+      { label: 'System Settings (系统设置)', view: 'ADMIN', icon: Settings, adminOnly: true },
+    ].filter(item => {
+        if (item.adminOnly && getUserRoleName(user) !== '管理员') return false;
+        return item.label.toLowerCase().includes(term);
+    });
+
+    const themes = THEMES.map(t => ({
+      label: `Switch Theme: ${t.name}`,
+      themeId: t.id,
+      color: t.color
+    })).filter(item => item.label.toLowerCase().includes(term));
+
+    return { navs, themes };
+  }, [commandSearch, user]);
+
   // Helper to resolve dynamic role name
-  const getUserRoleName = (u: User) => {
+  function getUserRoleName(u: User) {
     if (u.roleId && roles.length > 0) {
       const foundRole = roles.find(r => r.id === u.roleId);
       if (foundRole) return foundRole.name;
@@ -111,6 +167,15 @@ export const Layout: React.FC<LayoutProps> = ({
         </div>
 
         <nav className="flex-1 p-4 overflow-y-auto">
+           {/* Command Palette Trigger Hint */}
+           <button 
+             onClick={() => setIsCommandOpen(true)}
+             className="w-full mb-6 flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 hover:border-indigo-300 hover:text-indigo-600 transition-all text-xs"
+           >
+             <span className="flex items-center"><SearchIcon className="w-3.5 h-3.5 mr-2"/> 快速搜索...</span>
+             <kbd className="font-mono bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+           </button>
+
           <div className="mb-6">
             <p className="px-4 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">业务管理</p>
             <NavItem view="DASHBOARD" icon={LayoutDashboard} label="仪表盘" />
@@ -266,15 +331,18 @@ export const Layout: React.FC<LayoutProps> = ({
 
         {/* Top Bar (Desktop) */}
         <header className="hidden md:flex h-16 bg-white border-b border-slate-200 items-center justify-between px-8">
-           <h2 className="text-xl font-semibold text-slate-800">
-             {currentView === 'DASHBOARD' && '仪表盘'}
-             {currentView === 'CLIENTS' && '客户管理'}
-             {currentView === 'VISITS' && '拜访记录'}
-             {currentView === 'USERS' && '用户管理'}
-             {currentView === 'DEPARTMENTS' && '部门管理'}
-             {currentView === 'ROLES' && '角色管理'}
-             {currentView === 'ADMIN' && '系统设置'}
-           </h2>
+           <div className="flex items-center space-x-2">
+               <h2 className="text-xl font-semibold text-slate-800">
+                 {currentView === 'DASHBOARD' && '仪表盘'}
+                 {currentView === 'CLIENTS' && '客户管理'}
+                 {currentView === 'VISITS' && '拜访记录'}
+                 {currentView === 'USERS' && '用户管理'}
+                 {currentView === 'DEPARTMENTS' && '部门管理'}
+                 {currentView === 'ROLES' && '角色管理'}
+                 {currentView === 'ADMIN' && '系统设置'}
+               </h2>
+           </div>
+           
            <div className="flex items-center space-x-4">
              {/* Theme Switcher Desktop */}
              <div className="relative" ref={themeMenuRef}>
@@ -319,6 +387,76 @@ export const Layout: React.FC<LayoutProps> = ({
           {children}
         </main>
       </div>
+
+      {/* Global Command Palette Modal */}
+      {isCommandOpen && (
+        <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-[100] flex items-start justify-center pt-[15vh]">
+           <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col animate-scale-in">
+              <div className="flex items-center p-4 border-b border-slate-100">
+                 <SearchIcon className="w-5 h-5 text-slate-400 mr-3" />
+                 <input 
+                    ref={commandInputRef}
+                    className="flex-1 outline-none text-slate-700 placeholder:text-slate-400 text-lg"
+                    placeholder="输入指令或搜索..."
+                    value={commandSearch}
+                    onChange={e => setCommandSearch(e.target.value)}
+                 />
+                 <div className="flex items-center gap-1">
+                    <kbd className="hidden md:inline-flex h-5 items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 font-mono text-[10px] font-medium text-slate-500">ESC</kbd>
+                 </div>
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto p-2">
+                 {/* Navigation Group */}
+                 {filteredCommands.navs.length > 0 && (
+                    <div className="mb-2">
+                       <div className="text-xs font-semibold text-slate-400 px-3 py-2 uppercase">页面导航</div>
+                       {filteredCommands.navs.map(nav => (
+                          <button
+                             key={nav.view}
+                             onClick={() => {
+                                setView(nav.view as any);
+                                setIsCommandOpen(false);
+                             }}
+                             className="w-full flex items-center px-3 py-2.5 rounded-lg hover:bg-slate-50 text-slate-700 transition-colors group"
+                          >
+                             <nav.icon className="w-5 h-5 mr-3 text-slate-400 group-hover:text-indigo-600" />
+                             <span className="flex-1 text-left">{nav.label}</span>
+                             <ArrowRight className="w-4 h-4 text-slate-300 opacity-0 group-hover:opacity-100" />
+                          </button>
+                       ))}
+                    </div>
+                 )}
+                 
+                 {/* Themes Group */}
+                 {filteredCommands.themes.length > 0 && (
+                    <div className="mb-2">
+                       <div className="text-xs font-semibold text-slate-400 px-3 py-2 uppercase">切换主题</div>
+                       {filteredCommands.themes.map(t => (
+                          <button
+                             key={t.themeId}
+                             onClick={() => {
+                                setTheme(t.themeId);
+                                setIsCommandOpen(false);
+                             }}
+                             className="w-full flex items-center px-3 py-2.5 rounded-lg hover:bg-slate-50 text-slate-700 transition-colors"
+                          >
+                             <div className="w-5 h-5 rounded-full mr-3 border border-slate-200" style={{ backgroundColor: t.color }}></div>
+                             <span className="flex-1 text-left">{t.label}</span>
+                             {currentTheme === t.themeId && <Check className="w-4 h-4 text-indigo-600" />}
+                          </button>
+                       ))}
+                    </div>
+                 )}
+
+                 {filteredCommands.navs.length === 0 && filteredCommands.themes.length === 0 && (
+                    <div className="py-8 text-center text-slate-400">
+                       未找到相关指令。
+                    </div>
+                 )}
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };

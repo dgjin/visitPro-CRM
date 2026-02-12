@@ -32,10 +32,28 @@ import {
   MapPin,
   Filter,
   XCircle,
-  Eye
+  Eye,
+  FileText
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
+
+// Custom Icon defined outside component to avoid conflicts/re-creation
+const BuildingIcon = (props: any) => (
+  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect width="16" height="20" x="4" y="2" rx="2" ry="2"/>
+    <path d="M9 22v-4h6v4"/>
+    <path d="M8 6h.01"/>
+    <path d="M16 6h.01"/>
+    <path d="M12 6h.01"/>
+    <path d="M12 10h.01"/>
+    <path d="M12 14h.01"/>
+    <path d="M16 10h.01"/>
+    <path d="M16 14h.01"/>
+    <path d="M8 10h.01"/>
+    <path d="M8 14h.01"/>
+  </svg>
+);
 
 interface VisitManagerProps {
   visits: Visit[];
@@ -45,6 +63,11 @@ interface VisitManagerProps {
   currentUser: User;
   initialVisitId?: string | null;
   onClearInitialVisit?: () => void;
+  shouldCreateNew?: boolean;
+  onResetTrigger?: () => void;
+  initialSearchTerm?: string;
+  draftVisit?: Partial<Visit> | null;
+  onClearDraft?: () => void;
 }
 
 export const VisitManager: React.FC<VisitManagerProps> = ({ 
@@ -54,7 +77,12 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   fieldDefinitions = [], 
   currentUser,
   initialVisitId,
-  onClearInitialVisit
+  onClearInitialVisit,
+  shouldCreateNew,
+  onResetTrigger,
+  initialSearchTerm,
+  draftVisit,
+  onClearDraft
 }) => {
   const [viewMode, setViewMode] = useState<'LIST' | 'EDITOR'>('LIST');
   const [currentVisit, setCurrentVisit] = useState<Partial<Visit>>({});
@@ -72,6 +100,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   const [clientSearchTerm, setClientSearchTerm] = useState('');
   const [isClientDropdownOpen, setIsClientDropdownOpen] = useState(false);
   const clientDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Template Dropdown
+  const [isTemplateOpen, setIsTemplateOpen] = useState(false);
+  const templateRef = useRef<HTMLDivElement>(null);
 
   // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -135,10 +167,40 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     }
   }, [initialVisitId, visits, onClearInitialVisit]);
 
+  // Handle Voice Trigger for new visit
+  useEffect(() => {
+    if (shouldCreateNew) {
+      startNewVisit();
+      if (onResetTrigger) onResetTrigger();
+    }
+  }, [shouldCreateNew, onResetTrigger]);
+
+  // Handle Draft Visit (Smart Check-in)
+  useEffect(() => {
+      if (draftVisit) {
+          startNewVisit(draftVisit);
+          if (onClearDraft) onClearDraft();
+      }
+  }, [draftVisit]);
+
+  // Handle Initial Search Term (Voice Command)
+  useEffect(() => {
+    if (initialSearchTerm !== undefined) {
+      setListSearchTerm(initialSearchTerm);
+      if (initialSearchTerm) {
+          setViewMode('LIST');
+          setCurrentPage(1);
+      }
+    }
+  }, [initialSearchTerm]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (clientDropdownRef.current && !clientDropdownRef.current.contains(event.target as Node)) {
         setIsClientDropdownOpen(false);
+      }
+      if (templateRef.current && !templateRef.current.contains(event.target as Node)) {
+        setIsTemplateOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -189,7 +251,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     return now.toISOString().slice(0, 16);
   };
 
-  const startNewVisit = () => {
+  const startNewVisit = (overrides?: Partial<Visit>) => {
     setCurrentVisit({
       id: '', // Empty ID indicates new
       date: getLocalISOString(),
@@ -199,9 +261,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       ownerId: currentUser.id,
       ownerName: currentUser.name,
       customFields: {},
-      recordings: []
+      recordings: [],
+      ...overrides
     });
-    setClientSearchTerm('');
+    setClientSearchTerm(overrides?.clientName || '');
     setViewMode('EDITOR');
   };
 
@@ -214,12 +277,43 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     });
   };
 
+  const insertTemplate = (template: 'SPIN' | 'MEETING') => {
+      if (isReadOnly) return;
+      
+      let html = '';
+      if (template === 'SPIN') {
+          html = `
+            <p><b>背景问题 (Situation):</b></p><ul><li>客户目前的现状是...</li></ul>
+            <p><b>难点问题 (Problem):</b></p><ul><li>遇到的主要挑战是...</li></ul>
+            <p><b>暗示问题 (Implication):</b></p><ul><li>如果不解决，会导致...</li></ul>
+            <p><b>需求-收益 (Need-Payoff):</b></p><ul><li>如果能解决，价值在于...</li></ul>
+          `;
+      } else {
+          html = `
+            <p><b>参会人:</b> </p>
+            <p><b>会议目标:</b> </p>
+            <p><b>核心决议:</b></p><ul><li>决议1</li></ul>
+            <p><b>下一步计划:</b></p><ul><li>计划1 (负责人: , 截止: )</li></ul>
+          `;
+      }
+
+      const editor = editorRef.current;
+      if (editor) {
+          editor.focus();
+          document.execCommand('insertHTML', false, html);
+          // Sync state
+          setCurrentVisit(prev => ({...prev, content: editor.innerHTML}));
+      }
+      setIsTemplateOpen(false);
+  };
+
   const startRecording = async () => {
     try {
+      // Request Mic Access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      // 1. Setup MediaRecorder (File)
+      // --- 1. Audio Storage (MediaRecorder) ---
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
@@ -230,6 +324,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
         }
       };
 
+      // Handler for when saving stops
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const base64Audio = await blobToBase64(audioBlob);
@@ -251,7 +346,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
       mediaRecorder.start();
 
-      // 2. Setup AudioContext (Stream)
+      // --- 2. Real-time Processing (AudioContext) ---
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioContext();
       if (audioCtx.state === 'suspended') {
@@ -268,15 +363,21 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
       setRecordingState('connecting');
 
-      // 3. Setup iFlytek with Auto-Restart
+      // --- 3. iFlytek Streaming Session ---
       const initSession = () => {
         console.log("Initializing iFlytek Session...");
         const session = new IflytekStreamingSession(
           (text, isFinal) => {
-             setCurrentVisit(prev => ({
-                ...prev,
-                content: (prev.content || '') + text
-             }));
+             // Intelligently append text
+             setCurrentVisit(prev => {
+                const prevContent = prev.content || '';
+                // Avoid duplicating text if iFlytek sends corrections, 
+                // but since we are append-only here, just append.
+                return {
+                    ...prev,
+                    content: prevContent + text
+                };
+             });
           },
           (err) => {
              console.error("Stream Error", err);
@@ -295,13 +396,12 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
              if (isRecordingRef.current) {
                 console.log("iFlytek Session Closed, Auto-Restarting...");
                 setRecordingState('connecting');
+                // Re-connect delay
                 setTimeout(() => {
                    if (isRecordingRef.current) {
                       iflytekSessionRef.current = initSession();
                    }
-                }, 50);
-             } else {
-                console.log("iFlytek Session Closed normally.");
+                }, 100);
              }
           }
         );
@@ -313,7 +413,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
       processor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0); 
-        const pcmData = downsampleBuffer(inputData, audioCtx.sampleRate);
+        // Clone to ensure we don't hold reference to buffer that might be recycled
+        const dataClone = new Float32Array(inputData);
+        // Convert Float32 audio to Int16 PCM
+        const pcmData = downsampleBuffer(dataClone, audioCtx.sampleRate);
         
         if (iflytekSessionRef.current) {
             iflytekSessionRef.current.send(pcmData);
@@ -342,15 +445,12 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   const stopRecordingResources = () => {
     isRecordingRef.current = false;
 
+    // 1. Stop Saving File
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
 
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-
+    // 2. Stop Audio Context & Processor
     if (scriptProcessorRef.current) {
         scriptProcessorRef.current.disconnect();
         scriptProcessorRef.current = null;
@@ -363,12 +463,20 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
         audioContextRef.current.close();
         audioContextRef.current = null;
     }
+
+    // 3. Stop Stream Tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
     
+    // 4. Stop iFlytek Session
     if (iflytekSessionRef.current) {
         iflytekSessionRef.current.stop();
         iflytekSessionRef.current = null;
     }
 
+    // 5. Cleanup UI
     if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -607,12 +715,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     switch (type) {
       case '线上会议': return <Video className="w-4 h-4 text-blue-500" />;
       case '电话沟通': return <Phone className="w-4 h-4 text-emerald-500" />;
-      case '客户到访': return <Building className="w-4 h-4 text-amber-500" />;
+      case '客户到访': return <BuildingIcon className="w-4 h-4 text-amber-500" />;
       default: return <UserIcon className="w-4 h-4 text-indigo-500" />;
     }
   };
-
-  const Building = (props: any) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="16" height="20" x="4" y="2" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01"/><path d="M16 6h.01"/><path d="M12 6h.01"/><path d="M12 10h.01"/><path d="M12 14h.01"/><path d="M16 10h.01"/><path d="M16 14h.01"/><path d="M8 10h.01"/><path d="M8 14h.01"/></svg>;
 
   // LIST VIEW
   if (viewMode === 'LIST') {
@@ -621,7 +727,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-slate-800">拜访历史</h2>
           <button 
-            onClick={startNewVisit}
+            onClick={() => startNewVisit()}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl flex items-center font-medium shadow-sm"
           >
             <Calendar className="w-5 h-5 mr-2" />
@@ -817,7 +923,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                </div>
             </div>
           )}
-        </div>
+       </div>
       </div>
     );
   }
@@ -1173,6 +1279,35 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                     >
                       <ListOrdered className="w-4 h-4"/>
                     </button>
+                    <div className="w-px h-4 bg-slate-300 mx-1"></div>
+                    {/* Template Button */}
+                    <div className="relative" ref={templateRef}>
+                        <button 
+                            onClick={(e) => { e.preventDefault(); !isReadOnly && setIsTemplateOpen(!isTemplateOpen); }}
+                            className={`p-1.5 rounded text-slate-600 flex items-center ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`}
+                            title="Insert Template"
+                            type="button"
+                            disabled={isReadOnly}
+                        >
+                            <FileText className="w-4 h-4 mr-1"/> <span className="text-xs">模板</span>
+                        </button>
+                        {isTemplateOpen && !isReadOnly && (
+                            <div className="absolute top-full left-0 mt-1 bg-white border border-slate-100 rounded-lg shadow-xl z-20 w-32 py-1">
+                                <button 
+                                    className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                    onClick={() => insertTemplate('SPIN')}
+                                >
+                                    SPIN 销售法
+                                </button>
+                                <button 
+                                    className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                    onClick={() => insertTemplate('MEETING')}
+                                >
+                                    会议纪要
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
                 
                 {/* Editable Area */}
@@ -1223,9 +1358,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                    <button 
                      onClick={handleAIAnalyze}
                      disabled={isAnalyzing || !currentVisit.content}
-                     className="text-xs bg-white border border-indigo-100 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-50 disabled:opacity-50"
+                     className="text-xs bg-white border border-indigo-100 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-50 disabled:opacity-50 flex items-center"
                    >
-                     {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin"/> : '生成分析'}
+                     {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin mr-1"/> : null}
+                     {isAnalyzing ? '分析中...' : '生成分析'}
                    </button>
                )}
                <button 
@@ -1290,8 +1426,9 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                        <button 
                           onClick={handleGenerateEmail}
                           disabled={isGeneratingEmail}
-                          className="text-xs text-indigo-600 hover:underline disabled:opacity-50"
+                          className="text-xs text-indigo-600 hover:underline disabled:opacity-50 flex items-center"
                        >
+                         {isGeneratingEmail ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
                          {isGeneratingEmail ? '起草中...' : '生成邮件'}
                        </button>
                    )}

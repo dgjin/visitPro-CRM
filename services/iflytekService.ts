@@ -141,13 +141,17 @@ export const generateSparkContent = async (prompt: string): Promise<string> => {
 
 /**
  * Downsamples AudioBuffer/Float32Array (44.1/48k) to 16kHz PCM (Int16)
+ * This is critical for iFlytek API compatibility.
  */
 export const downsampleBuffer = (buffer: Float32Array, inputSampleRate: number): Int16Array => {
   const outputSampleRate = 16000;
+  
   if (inputSampleRate === outputSampleRate) {
     const out = new Int16Array(buffer.length);
     for (let i = 0; i < buffer.length; i++) {
+      // Clamp values
       let s = Math.max(-1, Math.min(1, buffer[i]));
+      // Convert Float32 (-1.0 to 1.0) to Int16 (-32768 to 32767)
       out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
     return out;
@@ -156,11 +160,14 @@ export const downsampleBuffer = (buffer: Float32Array, inputSampleRate: number):
   const sampleRateRatio = inputSampleRate / outputSampleRate;
   const newLength = Math.round(buffer.length / sampleRateRatio);
   const result = new Int16Array(newLength);
+  
   let offsetResult = 0;
   let offsetBuffer = 0;
 
   while (offsetResult < result.length) {
     let nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+    
+    // Use average value for downsampling to prevent aliasing (simple filter)
     let accum = 0, count = 0;
     for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
       accum += buffer[i];
@@ -168,7 +175,9 @@ export const downsampleBuffer = (buffer: Float32Array, inputSampleRate: number):
     }
     
     let s = count > 0 ? accum / count : 0;
+    // Clamp
     s = Math.max(-1, Math.min(1, s));
+    // Convert
     result[offsetResult] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     
     offsetResult++;
@@ -180,8 +189,6 @@ export const downsampleBuffer = (buffer: Float32Array, inputSampleRate: number):
 
 // --- Error Handling & Session ---
 
-// Map common iFlytek error codes to friendly messages
-// isFatal: true means we should STOP recording and alert user. false means we can potentially retry.
 const ERROR_MAP: Record<number, { message: string, isFatal: boolean }> = {
     10105: { message: "没有权限 (10105)", isFatal: true },
     10313: { message: "Token错误 (10313)", isFatal: true },
@@ -202,7 +209,7 @@ export class IflytekError extends Error {
     const finalMessage = mapped ? mapped.message : originalMessage;
     super(finalMessage);
     this.code = code;
-    this.isFatal = mapped ? mapped.isFatal : false; // Default to non-fatal for unknown errors to allow retry
+    this.isFatal = mapped ? mapped.isFatal : false; 
     this.name = 'IflytekError';
   }
 }
@@ -255,7 +262,6 @@ export class IflytekStreamingSession {
         const jsonData = JSON.parse(e.data);
         if (jsonData.code !== 0) {
           console.error("iFlytek API Error:", jsonData);
-          // Pass the specific error code for handling (e.g. 11200 for permission denied)
           const err = new IflytekError(jsonData.message || `讯飞API错误 [${jsonData.code}]`, jsonData.code);
           this.onErrorCallback(err);
           this.stop();
@@ -270,16 +276,13 @@ export class IflytekStreamingSession {
              this.onTextCallback(text, jsonData.data.status === 2);
           }
           
-          // Check if server closed session (Status=2 means end of speech/VAD detected)
           if (jsonData.data.status === 2) {
-             // Server will close connection shortly. We initiate stop to clean up.
              this.stop();
           }
         }
       };
 
       this.ws.onerror = (e) => {
-        // Only trigger error if not already closed intentionally
         if (this.status !== 'closed') {
            console.error("iFlytek WS Error", e);
            this.onErrorCallback(new Error("网络连接中断"));
@@ -301,14 +304,16 @@ export class IflytekStreamingSession {
   send(pcmData: Int16Array) {
      if (this.status === 'closed') return;
 
-     let binary = '';
+     // Stack-safe binary conversion (avoid spreading large arrays)
      const len = pcmData.byteLength;
      const bytes = new Uint8Array(pcmData.buffer);
+     let binary = '';
      for (let i = 0; i < len; i++) {
          binary += String.fromCharCode(bytes[i]);
      }
      const chunkBase64 = btoa(binary);
 
+     // Status: 0=First, 1=Intermediate, 2=Last (Handled in stop)
      const frameStatus = this.hasSentFirstFrame ? 1 : 0;
      
      const frame: any = {
@@ -324,14 +329,12 @@ export class IflytekStreamingSession {
        frame.common = { app_id: this.config.appId };
        frame.business = {
          language: "zh_cn",
-         domain: this.config.sttDomain || 'iat', // Use configured STT domain
+         domain: this.config.sttDomain || 'iat',
          accent: "mandarin",
-         // vad_eos: Max silence time before server closes connection. 
-         // Set to 10s. Client will auto-restart if recording is still active.
          vad_eos: 10000, 
-         dwa: "wpgs", // Enable dynamic correction if desired, but frontend is currently append-only.
-         ptt: 1, // Enable punctuation
-         nbest: 1, // Return best result
+         dwa: "wpgs", 
+         ptt: 1, 
+         nbest: 1, 
        };
        // Disable wpgs for now to avoid complex text replacement logic in frontend
        delete frame.business.dwa;
@@ -360,7 +363,7 @@ export class IflytekStreamingSession {
       try {
         const endFrame = JSON.stringify({
           data: {
-            status: 2,
+            status: 2, // Last Frame
             format: "audio/L16;rate=16000",
             encoding: "raw",
             audio: ""

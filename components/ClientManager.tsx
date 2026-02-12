@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Client, ClientStatus, CustomFieldDefinition, Contact, Shareholder, Subsidiary, User } from '../types';
 import { 
   Search, Plus, MapPin, Mail, Phone, Building, Briefcase, 
@@ -14,7 +14,11 @@ import {
   ArrowDown,
   RefreshCw,
   ArrowLeft,
-  MoreHorizontal
+  MoreHorizontal,
+  CheckSquare,
+  Square as SquareIcon,
+  Download,
+  ArrowRight
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -59,6 +63,9 @@ interface ClientManagerProps {
   setClients: React.Dispatch<React.SetStateAction<Client[]>>;
   fieldDefinitions?: CustomFieldDefinition[];
   currentUser?: User;
+  initialSearchTerm?: string;
+  shouldCreateNew?: boolean;
+  onResetTrigger?: () => void;
 }
 
 // Internal Component: SVG Mind Map for Equity Structure (Upstream & Downstream)
@@ -243,7 +250,15 @@ const EquityStructureMap = ({
   );
 };
 
-export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClients, fieldDefinitions = [], currentUser }) => {
+export const ClientManager: React.FC<ClientManagerProps> = ({ 
+  clients, 
+  setClients, 
+  fieldDefinitions = [], 
+  currentUser,
+  initialSearchTerm,
+  shouldCreateNew,
+  onResetTrigger
+}) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [activeTab, setActiveTab] = useState<'BASIC' | 'EQUITY' | 'CONTACTS'>('BASIC');
@@ -265,6 +280,27 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   const [selectedEquityType, setSelectedEquityType] = useState<'shareholder' | 'subsidiary' | null>(null);
   const [selectedEquityIndex, setSelectedEquityIndex] = useState<number | null>(null);
 
+  // Batch Operations State
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // --- External Control Effects ---
+  useEffect(() => {
+    if (initialSearchTerm !== undefined) {
+      setSearchTerm(initialSearchTerm);
+      if (initialSearchTerm) {
+          // If searching, close details to show results
+          setSelectedClient(null); 
+      }
+    }
+  }, [initialSearchTerm]);
+
+  useEffect(() => {
+    if (shouldCreateNew) {
+      handleAddMockClient();
+      if (onResetTrigger) onResetTrigger();
+    }
+  }, [shouldCreateNew, onResetTrigger]);
+
   // Permission Logic
   const canEdit = (client: Client | null) => {
       if (!client) return true; // New client
@@ -284,6 +320,69 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
 
   const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
   const paginatedClients = filteredClients.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
+  // --- Batch Operations Logic ---
+  const handleSelectAll = () => {
+      if (selectedIds.size === paginatedClients.length) {
+          setSelectedIds(new Set());
+      } else {
+          setSelectedIds(new Set(paginatedClients.map(c => c.id)));
+      }
+  };
+
+  const handleSelectOne = (id: string) => {
+      const newSet = new Set(selectedIds);
+      if (newSet.has(id)) {
+          newSet.delete(id);
+      } else {
+          newSet.add(id);
+      }
+      setSelectedIds(newSet);
+  };
+
+  const handleBatchDelete = async () => {
+      if (!confirm(`确定要删除选中的 ${selectedIds.size} 个客户吗？此操作无法撤销。`)) return;
+      
+      const idsToDelete = Array.from(selectedIds);
+      setClients(prev => prev.filter(c => !selectedIds.has(c.id)));
+      setSelectedIds(new Set());
+      
+      // Execute deletions in background
+      for (const id of idsToDelete) {
+          await deleteClient(id);
+      }
+  };
+
+  const handleBatchStatus = (status: ClientStatus) => {
+      setClients(prev => prev.map(c => {
+          if (selectedIds.has(c.id)) {
+              // Trigger background update (async, no await)
+              upsertClient({ ...c, status });
+              return { ...c, status };
+          }
+          return c;
+      }));
+      setSelectedIds(new Set());
+  };
+
+  const handleBatchExport = () => {
+      const selectedData = clients.filter(c => selectedIds.has(c.id));
+      const csvHeader = 'ID,Name,Industry,Status,Region,Owner\n';
+      const csvRows = selectedData.map(c => 
+          `${c.id},"${c.name}",${c.industry},${c.status},"${c.region}",${c.ownerName}`
+      ).join('\n');
+      
+      const blob = new Blob([csvHeader + csvRows], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `export_clients_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
+  // --- Regular Client Handlers ---
 
   const handleGenerateProfile = async () => {
     if (!selectedClient || isReadOnly) return;
@@ -499,7 +598,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
   };
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col relative">
        {/* Header */}
        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
          <div className="flex items-center">
@@ -533,6 +632,13 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
              <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
                    <tr>
+                      <th className="px-4 py-4 w-12">
+                          <button onClick={handleSelectAll} className="flex items-center justify-center text-slate-400 hover:text-indigo-600">
+                              {selectedIds.size > 0 && selectedIds.size === paginatedClients.length 
+                                  ? <CheckSquare className="w-5 h-5 text-indigo-600" /> 
+                                  : <SquareIcon className="w-5 h-5" />}
+                          </button>
+                      </th>
                       <th className="px-6 py-4 font-semibold text-slate-600">客户名称</th>
                       <th className="px-6 py-4 font-semibold text-slate-600">行业/地区</th>
                       <th className="px-6 py-4 font-semibold text-slate-600">主要联系人</th>
@@ -545,16 +651,22 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                    {paginatedClients.map(client => {
                       const firstContact = client.contacts && client.contacts.length > 0 ? client.contacts[0] : null;
                       const hasPermission = canEdit(client);
+                      const isSelected = selectedIds.has(client.id);
                       return (
                          <tr 
                            key={client.id} 
                            onClick={() => { setSelectedClient(client); setActiveTab('BASIC'); }}
-                           className="hover:bg-slate-50 transition-colors cursor-pointer group"
+                           className={`transition-colors cursor-pointer group ${isSelected ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}
                          >
+                            <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                                <button onClick={() => handleSelectOne(client.id)} className="flex items-center justify-center text-slate-400 hover:text-indigo-600">
+                                    {isSelected ? <CheckSquare className="w-5 h-5 text-indigo-600" /> : <SquareIcon className="w-5 h-5" />}
+                                </button>
+                            </td>
                             <td className="px-6 py-4">
                                <div className="flex items-center">
                                   <div className={`w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center text-white font-bold text-sm mr-3 ${
-                                     client.status === ClientStatus.Active ? 'bg-indigo-500' : client.status === ClientStatus.Churned ? 'bg-slate-400' : 'bg-blue-400'
+                                     client.status === ClientStatus.Active ? 'bg-indigo-50' : client.status === ClientStatus.Churned ? 'bg-slate-400' : 'bg-blue-400'
                                   }`}>
                                      {client.name.substring(0, 1)}
                                   </div>
@@ -611,7 +723,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
                    })}
                    {paginatedClients.length === 0 && (
                       <tr>
-                         <td colSpan={6} className="px-6 py-20 text-center text-slate-400">
+                         <td colSpan={7} className="px-6 py-20 text-center text-slate-400">
                             <Users className="w-12 h-12 mx-auto mb-3 opacity-10" />
                             <p>未找到相关客户</p>
                          </td>
@@ -649,6 +761,34 @@ export const ClientManager: React.FC<ClientManagerProps> = ({ clients, setClient
             </div>
           )}
        </div>
+
+       {/* Batch Action Bar */}
+       {selectedIds.size > 0 && (
+           <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center space-x-6 z-20 animate-fade-in-up">
+               <span className="text-sm font-medium mr-2">{selectedIds.size} 个已选中</span>
+               
+               <div className="h-6 w-px bg-slate-600"></div>
+               
+               <button onClick={() => handleBatchStatus(ClientStatus.Active)} className="flex flex-col items-center hover:text-emerald-400 transition-colors">
+                   <CheckSquare className="w-5 h-5 mb-1" />
+                   <span className="text-[10px]">设为已签约</span>
+               </button>
+               
+               <button onClick={handleBatchExport} className="flex flex-col items-center hover:text-blue-400 transition-colors">
+                   <Download className="w-5 h-5 mb-1" />
+                   <span className="text-[10px]">导出 CSV</span>
+               </button>
+               
+               <button onClick={handleBatchDelete} className="flex flex-col items-center hover:text-red-400 transition-colors">
+                   <Trash2 className="w-5 h-5 mb-1" />
+                   <span className="text-[10px]">删除</span>
+               </button>
+
+               <button onClick={() => setSelectedIds(new Set())} className="ml-4 p-1 rounded-full bg-slate-700 hover:bg-slate-600">
+                   <X className="w-4 h-4" />
+               </button>
+           </div>
+       )}
 
        {/* Detail Modal */}
        {selectedClient && (

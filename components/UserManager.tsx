@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, Role, Department, LoginHistory } from '../types';
-import { Plus, Edit2, Trash2, UserCog, X, Search, ChevronLeft, ChevronRight, Clock, History } from 'lucide-react';
+import { Plus, Edit2, Trash2, UserCog, X, Search, ChevronLeft, ChevronRight, Clock, History, Camera } from 'lucide-react';
 import { upsertUser, deleteUser, fetchLoginHistory } from '../services/supabaseService';
 
 const ITEMS_PER_PAGE = 10;
@@ -20,6 +20,8 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
   // Login History State
   const [loginHistory, setLoginHistory] = useState<LoginHistory[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredUsers = users.filter(u => 
     u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -76,6 +78,22 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
         current = departments.find(d => d.id === current?.parentId);
     }
     return path.join(' - ');
+  };
+
+  const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert("图片大小不能超过 2MB");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEditingUser(prev => prev ? ({ ...prev, avatarUrl: reader.result as string }) : null);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSave = async () => {
@@ -156,7 +174,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden flex flex-col flex-1">
           <div className="overflow-y-auto flex-1">
             <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-100 sticky top-0">
+                <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
                     <tr>
                     <th className="px-6 py-4 font-semibold text-slate-600">用户</th>
                     <th className="px-6 py-4 font-semibold text-slate-600">机构-部门</th>
@@ -174,7 +192,14 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                         <tr key={user.id} className="hover:bg-slate-50 transition-colors">
                             <td className="px-6 py-4">
                                 <div className="flex items-center">
-                                <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-full mr-3" />
+                                <img 
+                                    src={user.avatarUrl} 
+                                    alt="" 
+                                    className="w-10 h-10 rounded-full mr-3 object-cover border border-slate-100 bg-slate-50" 
+                                    onError={(e) => {
+                                        (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${user.name}&background=random`;
+                                    }}
+                                />
                                 <div>
                                     <div className="font-medium text-slate-900">{user.name}</div>
                                     <div className="text-xs text-slate-500">{user.email}</div>
@@ -245,7 +270,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
        {/* Edit Modal */}
        {editingUser && (
          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh] animate-scale-in">
                {/* Modal Header */}
                <div className="flex justify-between items-center p-6 border-b border-slate-100">
                   <h3 className="text-lg font-bold text-slate-800">
@@ -258,6 +283,31 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                
                {/* Modal Body (Scrollable) */}
                <div className="flex-1 overflow-y-auto p-6">
+                   {/* Avatar Upload Section */}
+                   <div className="flex flex-col items-center mb-6">
+                       <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                           <img 
+                               src={editingUser.avatarUrl || `https://ui-avatars.com/api/?name=${editingUser.name || 'New User'}&background=random`} 
+                               alt="Avatar" 
+                               className="w-24 h-24 rounded-full object-cover border-4 border-slate-100 group-hover:border-indigo-100 transition-all shadow-sm"
+                               onError={(e) => {
+                                   (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${editingUser.name || 'New'}&background=random`;
+                               }}
+                           />
+                           <div className="absolute inset-0 bg-slate-900/30 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-[1px]">
+                               <Camera className="w-8 h-8 text-white" />
+                           </div>
+                           <input 
+                               type="file" 
+                               ref={fileInputRef} 
+                               className="hidden" 
+                               accept="image/*"
+                               onChange={handleAvatarUpload}
+                           />
+                       </div>
+                       <p className="text-xs text-slate-400 mt-2">点击头像上传新图片 (最大 2MB)</p>
+                   </div>
+
                    <div className="grid grid-cols-2 gap-4">
                       <div className="col-span-2">
                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">姓名</label>
@@ -265,6 +315,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                             className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
                             value={editingUser.name || ''}
                             onChange={e => setEditingUser(prev => ({ ...prev, name: e.target.value }))}
+                            placeholder="请输入姓名"
                          />
                       </div>
                       <div>
@@ -273,6 +324,7 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                             className="w-full p-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 bg-white"
                             value={editingUser.email || ''}
                             onChange={e => setEditingUser(prev => ({ ...prev, email: e.target.value }))}
+                            placeholder="email@company.com"
                          />
                       </div>
                       <div>

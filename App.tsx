@@ -7,6 +7,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { UserManager } from './components/UserManager';
 import { DepartmentManager } from './components/DepartmentManager';
 import { RoleManager } from './components/RoleManager';
+import { VoiceAssistant } from './components/VoiceAssistant'; // Import VoiceAssistant
 import { ViewState, Client, Visit, User, ClientStatus, Sentiment, CustomFieldDefinition, Department, Role } from './types';
 import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection } from './services/supabaseService';
 
@@ -225,8 +226,12 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [connectionMsg, setConnectionMsg] = useState<string | null>(null);
   
-  // Navigation State
+  // Navigation & Voice Command State
   const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
+  const [globalSearchTerm, setGlobalSearchTerm] = useState<string>('');
+  const [triggerNewVisit, setTriggerNewVisit] = useState(false);
+  const [triggerNewClient, setTriggerNewClient] = useState(false);
+  const [draftVisit, setDraftVisit] = useState<Partial<Visit> | null>(null); // For Check-in Pre-fill
   
   // Custom Fields State
   const [fieldDefinitions, setFieldDefinitions] = useState<CustomFieldDefinition[]>(() => {
@@ -348,6 +353,56 @@ const App: React.FC = () => {
     setView('VISITS');
   };
 
+  const handleCheckIn = (visitData: Partial<Visit>) => {
+      setDraftVisit(visitData);
+      setTriggerNewVisit(false); // Reset to ensure effect triggers
+      setView('VISITS');
+      // Small delay to ensure view switches before triggering new visit logic
+      setTimeout(() => setTriggerNewVisit(true), 50);
+  };
+
+  // Handle Voice Commands
+  const handleVoiceCommand = (cmd: any) => {
+      console.log("Voice Command Received:", cmd);
+      
+      // 1. Navigation
+      if (cmd.action === 'NAVIGATE' && cmd.parameters?.view) {
+          setView(cmd.parameters.view);
+          return;
+      }
+
+      // 2. Create Visit
+      if (cmd.action === 'CREATE_VISIT') {
+          setView('VISITS');
+          // Reset then trigger to ensure effect runs even if already true
+          setTriggerNewVisit(false); 
+          setTimeout(() => setTriggerNewVisit(true), 100);
+          return;
+      }
+
+      // 3. Create Client
+      if (cmd.action === 'CREATE_CLIENT') {
+          setView('CLIENTS');
+          setTriggerNewClient(false);
+          setTimeout(() => setTriggerNewClient(true), 100);
+          return;
+      }
+
+      // 4. Search
+      if (cmd.action === 'SEARCH' && cmd.parameters?.query) {
+          const targetView = cmd.parameters.view || 'CLIENTS'; // Default to clients
+          setView(targetView);
+          // Set to empty first to ensure change detection if term is identical
+          setGlobalSearchTerm('');
+          setTimeout(() => setGlobalSearchTerm(cmd.parameters.query), 50);
+      }
+      
+      // 5. Switch Theme
+      if (cmd.action === 'SWITCH_THEME' && cmd.parameters?.theme) {
+          setTheme(cmd.parameters.theme);
+      }
+  };
+
   const themePalette = THEME_PALETTES[theme] || THEME_PALETTES.indigo;
   const themeStyles = `
     :root {
@@ -396,6 +451,7 @@ const App: React.FC = () => {
             departments={departments}
             onNavigate={(view) => setView(view)} 
             onViewVisit={handleViewVisit}
+            onCheckIn={handleCheckIn}
           />
         )}
         {currentView === 'CLIENTS' && (
@@ -404,6 +460,9 @@ const App: React.FC = () => {
             setClients={setClients} 
             fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'CLIENT')}
             currentUser={currentUser}
+            initialSearchTerm={globalSearchTerm}
+            shouldCreateNew={triggerNewClient}
+            onResetTrigger={() => { setTriggerNewClient(false); setGlobalSearchTerm(''); }}
           />
         )}
         {currentView === 'VISITS' && (
@@ -415,6 +474,11 @@ const App: React.FC = () => {
             currentUser={currentUser}
             initialVisitId={selectedVisitId}
             onClearInitialVisit={() => setSelectedVisitId(null)}
+            shouldCreateNew={triggerNewVisit}
+            onResetTrigger={() => setTriggerNewVisit(false)}
+            initialSearchTerm={globalSearchTerm} // Pass global search term
+            draftVisit={draftVisit} // Pass smart check-in draft
+            onClearDraft={() => setDraftVisit(null)}
           />
         )}
         {currentView === 'USERS' && (
@@ -446,6 +510,9 @@ const App: React.FC = () => {
           />
         )}
       </Layout>
+      
+      {/* Floating Voice Assistant */}
+      <VoiceAssistant onCommand={handleVoiceCommand} />
     </>
   );
 };
