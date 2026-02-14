@@ -1,5 +1,5 @@
 {
-  "name": "visitpro-for-crm",
+  "name": "智慧客户拜访",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -16,7 +16,8 @@
     "lucide-react": "^0.563.0",
     "recharts": "^3.7.0",
     "@vitejs/plugin-react": "^5.1.4",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "crypto-js": "^4.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

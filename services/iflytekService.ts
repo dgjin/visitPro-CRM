@@ -1,4 +1,4 @@
-import CryptoJS from 'https://esm.sh/crypto-js@4.2.0';
+import CryptoJS from 'crypto-js';
 
 export const IFLYTEK_APP_ID_KEY = 'iflytek_app_id';
 export const IFLYTEK_API_SECRET_KEY = 'iflytek_api_secret';

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, Role, Department, LoginHistory } from '../types';
-import { Plus, Edit2, Trash2, UserCog, X, Search, ChevronLeft, ChevronRight, Clock, History, Camera } from 'lucide-react';
-import { upsertUser, deleteUser, fetchLoginHistory } from '../services/supabaseService';
+import { Plus, Edit2, Trash2, UserCog, X, Search, ChevronLeft, ChevronRight, Clock, History, Camera, Lock } from 'lucide-react';
+import { upsertUser, deleteUser, fetchLoginHistory, hashPassword } from '../services/supabaseService';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -102,17 +102,26 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
     // Find Role Name for legacy support
     const roleObj = roles.find(r => r.id === editingUser.roleId);
     
+    const isNewUser = !editingUser.id;
+    let passwordHash = undefined;
+
+    // Set default password '123456' for new users
+    if (isNewUser) {
+        passwordHash = await hashPassword('123456');
+    }
+
     const userToSave: User = {
         id: editingUser.id || Date.now().toString(),
         name: editingUser.name,
         email: editingUser.email || '',
-        phone: editingUser.phone || '', // Save Phone
+        phone: editingUser.phone || '', 
         avatarUrl: editingUser.avatarUrl || `https://ui-avatars.com/api/?name=${editingUser.name}&background=random`,
         roleId: editingUser.roleId,
         departmentId: editingUser.departmentId,
         role: roleObj?.name || '用户', // Fallback for display
         status: editingUser.status || 'active',
-        customFields: editingUser.customFields || {}
+        customFields: editingUser.customFields || {},
+        ...(isNewUser ? { password: passwordHash } : {}) // Only set password on creation
     };
 
     setUsers(prev => {
@@ -122,6 +131,11 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
     });
 
     await upsertUser(userToSave);
+    
+    if (isNewUser) {
+        alert(`用户 ${userToSave.name} 已创建。默认密码为：123456`);
+    }
+    
     setEditingUser(null);
   };
 
@@ -129,6 +143,17 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
     if (!confirm("确定要删除此用户吗？")) return;
     setUsers(prev => prev.filter(u => u.id !== id));
     await deleteUser(id);
+  };
+
+  const handleResetPassword = async () => {
+      if (!editingUser?.id) return;
+      if (!confirm(`确定要重置 ${editingUser.name} 的密码为 "123456" 吗？`)) return;
+      
+      const defaultHash = await hashPassword('123456');
+      const updatedUser = { ...editingUser, password: defaultHash } as User;
+      
+      await upsertUser(updatedUser);
+      alert("密码已重置为 123456");
   };
 
   const formatLastLogin = (iso?: string) => {
@@ -387,9 +412,22 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
                       </div>
                    </div>
 
+                   {/* Admin Actions */}
+                   {editingUser.id && (
+                       <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
+                           <button 
+                               onClick={handleResetPassword}
+                               className="text-amber-600 hover:text-amber-700 text-sm flex items-center hover:bg-amber-50 px-3 py-2 rounded-lg transition-colors"
+                           >
+                               <Lock className="w-4 h-4 mr-2" />
+                               重置密码为 123456
+                           </button>
+                       </div>
+                   )}
+
                    {/* Login History Section */}
                    {editingUser.id && (
-                       <div className="mt-8 pt-6 border-t border-slate-100">
+                       <div className="mt-6 pt-6 border-t border-slate-100">
                            <h4 className="text-sm font-bold text-slate-800 mb-4 flex items-center">
                                <History className="w-4 h-4 mr-2 text-indigo-600" />
                                登录日志 (最近50条)

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ViewState, User, Role, Notification } from '../types';
+import { hashPassword } from '../services/supabaseService';
 import { 
   LayoutDashboard, 
   Users, 
@@ -42,6 +43,7 @@ interface LayoutProps {
   roles?: Role[];
   notifications?: Notification[];
   setNotifications?: React.Dispatch<React.SetStateAction<Notification[]>>;
+  onLogout?: () => void;
 }
 
 const THEMES = [
@@ -65,7 +67,8 @@ export const Layout: React.FC<LayoutProps> = ({
   setTheme,
   roles = [],
   notifications = [],
-  setNotifications
+  setNotifications,
+  onLogout
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -190,29 +193,36 @@ export const Layout: React.FC<LayoutProps> = ({
       setEditingProfile(prev => ({ ...prev, themePreference: themeId }));
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
       if (!passwordForm.new || passwordForm.new !== passwordForm.confirm) {
           alert("两次输入的新密码不一致，或密码为空。");
           return;
       }
       
-      // Update profile with dummy password (in real app, this would be hashed)
-      const updatedProfile = { ...editingProfile, password: passwordForm.new };
-      setEditingProfile(updatedProfile);
-      
-      if (onUpdateUser) {
-          onUpdateUser(updatedProfile);
-          if (setNotifications) {
-              setNotifications(prev => [
-                  ...prev, 
-                  { id: Date.now().toString(), title: '密码已修改', message: '您的账户密码已更新。', type: 'success', timestamp: Date.now(), read: false }
-              ]);
-          }
+      try {
+        // Use global util
+        const hashedPassword = await hashPassword(passwordForm.new);
+
+        // Update profile with hashed password
+        const updatedProfile = { ...editingProfile, password: hashedPassword };
+        setEditingProfile(updatedProfile);
+        
+        if (onUpdateUser) {
+            onUpdateUser(updatedProfile);
+            if (setNotifications) {
+                setNotifications(prev => [
+                    ...prev, 
+                    { id: Date.now().toString(), title: '密码已修改', message: '您的账户密码已加密并安全保存。', type: 'success', timestamp: Date.now(), read: false }
+                ]);
+            }
+        }
+        setPasswordForm({ old: '', new: '', confirm: '' });
+        // Close modal
+        setIsProfileModalOpen(false);
+      } catch (error) {
+        console.error("Password encryption failed:", error);
+        alert("密码处理失败，请重试。");
       }
-      setPasswordForm({ old: '', new: '', confirm: '' });
-      // Don't close modal to allow continuing editing, or switch tab? 
-      // Maybe close
-      setIsProfileModalOpen(false);
   };
 
   // Filtered Commands
@@ -365,26 +375,19 @@ export const Layout: React.FC<LayoutProps> = ({
               </div>
               
               <div className="p-2 bg-slate-50 border-b border-slate-100 text-xs font-semibold text-slate-500 mt-1">
-                切换用户
+                操作
               </div>
               <div className="max-h-40 overflow-y-auto">
-                {allUsers.map(u => (
-                  <button
-                    key={u.id}
+                <button
                     onClick={() => {
-                      if (onSwitchUser) onSwitchUser(u);
-                      setIsUserMenuOpen(false);
+                        if (onLogout) onLogout();
+                        setIsUserMenuOpen(false);
                     }}
-                    className={`w-full text-left px-3 py-2 flex items-center hover:bg-slate-50 transition-colors ${u.id === user.id ? 'bg-indigo-50' : ''}`}
-                  >
-                    <img src={u.avatarUrl} alt="" className="w-8 h-8 rounded-full mr-3 border border-slate-100 object-cover" />
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${u.id === user.id ? 'text-indigo-700' : 'text-slate-700'}`}>{u.name}</p>
-                      <p className="text-xs text-slate-400 truncate">{getUserRoleName(u)}</p>
-                    </div>
-                    {u.id === user.id && <Check className="w-4 h-4 text-indigo-600 ml-2" />}
-                  </button>
-                ))}
+                    className="w-full text-left px-3 py-2 flex items-center hover:bg-red-50 text-slate-700 hover:text-red-600 transition-colors"
+                >
+                    <LogOut className="w-4 h-4 mr-3" />
+                    <span className="text-sm font-medium">退出登录</span>
+                </button>
               </div>
             </div>
           )}
@@ -475,25 +478,16 @@ export const Layout: React.FC<LayoutProps> = ({
             
             {/* Mobile User Switch */}
             <div className="mt-auto border-t border-slate-100 pt-4">
-               <p className="text-xs font-semibold text-slate-400 uppercase mb-2">切换用户</p>
-               <div className="space-y-2">
-                 {allUsers.map(u => (
-                    <button
-                      key={u.id}
-                      onClick={() => {
-                        if (onSwitchUser) onSwitchUser(u);
-                        setIsMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center p-2 rounded-lg ${u.id === user.id ? 'bg-indigo-50 border border-indigo-100' : 'bg-slate-50'}`}
-                    >
-                       <img src={u.avatarUrl} className="w-8 h-8 rounded-full mr-3 object-cover"/>
-                       <div className="flex-1 min-w-0 text-left">
-                          <span className={`block text-sm ${u.id === user.id ? 'font-bold text-indigo-700' : 'text-slate-700'}`}>{u.name}</span>
-                          <span className="block text-xs text-slate-400">{getUserRoleName(u)}</span>
-                       </div>
-                    </button>
-                 ))}
-               </div>
+               <button
+                  onClick={() => {
+                    if (onLogout) onLogout();
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="w-full flex items-center p-2 rounded-lg bg-red-50 text-red-700"
+                >
+                   <LogOut className="w-5 h-5 mr-3" />
+                   <span className="block text-sm font-bold">退出登录</span>
+                </button>
             </div>
           </div>
         )}

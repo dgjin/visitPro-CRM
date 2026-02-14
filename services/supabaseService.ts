@@ -8,6 +8,80 @@ let isEnvInitialized = false;
 const LS_URL_KEY = 'visitpro_supabase_url';
 const LS_ANON_KEY = 'visitpro_supabase_key';
 
+// --- Security / Auth Helpers ---
+
+/**
+ * Hash password using SHA-256 (Web Crypto API)
+ */
+export const hashPassword = async (password: string): Promise<string> => {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+/**
+ * Login user by checking email and password hash
+ */
+export const loginUser = async (email: string, passwordPlain: string): Promise<{ success: boolean; user?: User; message?: string }> => {
+  const client = getSupabase();
+  
+  // 1. Hash the input password
+  const passwordHash = await hashPassword(passwordPlain);
+
+  if (!client) {
+      // Fallback for Mock Mode
+      // For demo purposes, we check against the mock user in App.tsx manually or here if needed.
+      // But typically login requires DB. We will return specific error.
+      return { success: false, message: "数据库未连接，无法登录。" };
+  }
+
+  // 2. Fetch user by email
+  const { data, error } = await client
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
+
+  if (error || !data) {
+      return { success: false, message: "用户不存在或邮箱错误" };
+  }
+
+  // 3. Verify Password
+  // Note: In a real Supabase Auth setup, this is handled by supabase.auth.signInWithPassword
+  // This manual check is for the "Database Table" based approach requested.
+  if (data.password !== passwordHash) {
+      return { success: false, message: "密码错误" };
+  }
+
+  // 4. Map to User type
+  const user: User = {
+      ...data,
+      themePreference: data.theme_preference // Map snake_case
+  };
+
+  // 5. Log the login (Fire and forget)
+  logLogin(user.id);
+
+  return { success: true, user };
+};
+
+const logLogin = async (userId: string) => {
+    const client = getSupabase();
+    if (!client) return;
+    
+    // Update user last_login_at
+    await client.from('users').update({ last_login_at: new Date().toISOString() }).eq('id', userId);
+    
+    // Insert history
+    await client.from('login_history').insert({
+        user_id: userId,
+        login_at: new Date().toISOString(),
+        user_agent: navigator.userAgent
+    });
+};
+
 export const isConfiguredFromEnv = () => {
   const envUrl = process.env.SUPABASE_URL;
   const envKey = process.env.SUPABASE_KEY;
@@ -169,6 +243,7 @@ export const upsertClient = async (clientData: Client) => {
             supplyChainInfo, 
             ownerId, 
             ownerName,
+            tags, // Remove tags in fallback
             ...basicData 
         } = optimizedClientData;
         
@@ -181,7 +256,7 @@ export const upsertClient = async (clientData: Client) => {
         }
         
         // 4. Throw special warning to UI
-        throw new Error("PARTIAL_SUCCESS: 基础信息保存成功，但数据库缺少 AI 画像相关字段 (如 subsidiaries)。AI 分析数据未能保存。");
+        throw new Error("PARTIAL_SUCCESS: 基础信息保存成功，但数据库缺少 AI 画像相关字段 (如 tags, subsidiaries)。AI 分析数据未能保存。");
     }
 
     console.error('Error saving client:', error);

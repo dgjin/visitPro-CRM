@@ -51,6 +51,7 @@ create table if not exists public.clients (
     "subsidiaries" jsonb default '[]'::jsonb,
     "financialAnalysis" text,
     "supplyChainInfo" text,
+    "tags" jsonb default '[]'::jsonb, -- AI 生成的标签
     "created_at" timestamp with time zone default timezone('utc'::text, now())
 );
 
@@ -119,6 +120,7 @@ alter table public.clients add column if not exists "equityStructure" jsonb defa
 alter table public.clients add column if not exists "subsidiaries" jsonb default '[]'::jsonb;
 alter table public.clients add column if not exists "financialAnalysis" text;
 alter table public.clients add column if not exists "supplyChainInfo" text;
+alter table public.clients add column if not exists "tags" jsonb default '[]'::jsonb;
 
 -- Visits 表
 alter table public.visits add column if not exists "ownerId" text;

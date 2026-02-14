@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Visit, Client, Sentiment, CustomFieldDefinition, User, VisitRecording } from '../types';
-import { analyzeVisitNote, generateFollowUpEmail } from '../services/geminiService';
+import { Visit, Client, Sentiment, CustomFieldDefinition, User, VisitRecording, AIModelType } from '../types';
+import { analyzeVisitNote, generateFollowUpEmail, transcribeAudio } from '../services/geminiService';
 import { IflytekStreamingSession, downsampleBuffer, IflytekError } from '../services/iflytekService';
 import { upsertVisit, deleteVisit } from '../services/supabaseService';
 import { 
@@ -33,7 +33,10 @@ import {
   Filter,
   XCircle,
   Eye,
-  FileText
+  FileText,
+  Upload,
+  FileAudio,
+  BrainCircuit
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
@@ -111,6 +114,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   const [recordingState, setRecordingState] = useState<'idle' | 'connecting' | 'recording'>('idle');
   const [currentAudioDuration, setCurrentAudioDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [transcribingId, setTranscribingId] = useState<string | null>(null);
   
   // Refs for cleanup
   const streamRef = useRef<MediaStream | null>(null);
@@ -128,6 +133,15 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   // AI State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGeneratingEmail, setIsGeneratingEmail] = useState(false);
+  const [selectedAiModel, setSelectedAiModel] = useState<AIModelType>('gemini');
+
+  // Load default model from local storage
+  useEffect(() => {
+      const savedModel = localStorage.getItem('visitpro_ai_model') as AIModelType;
+      if (savedModel) {
+          setSelectedAiModel(savedModel);
+      }
+  }, []);
 
   // Permission Logic
   const canEdit = (visit: Partial<Visit>) => {
@@ -307,6 +321,62 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       setIsTemplateOpen(false);
   };
 
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      if (file.size > 25 * 1024 * 1024) {
+          alert("文件过大。请上传小于 25MB 的音频文件。");
+          return;
+      }
+      
+      try {
+          // Create a blob from file
+          const base64Audio = await blobToBase64(file);
+          
+          // Estimate duration (optional, simplistic)
+          // For accurate duration we'd need to load into Audio element but that's async
+          const newRecording: VisitRecording = {
+              id: Date.now().toString(),
+              url: base64Audio,
+              duration: 0, // Unknown initially
+              timestamp: new Date().toISOString()
+          };
+
+          setCurrentVisit(prev => ({
+              ...prev,
+              recordings: [...(prev.recordings || []), newRecording]
+          }));
+          
+          // Clear input
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          
+      } catch (e) {
+          console.error("File upload failed", e);
+          alert("文件读取失败");
+      }
+  };
+
+  const handleTranscribeAudio = async (recording: VisitRecording) => {
+      if (isReadOnly) return;
+      
+      setTranscribingId(recording.id);
+      try {
+          const text = await transcribeAudio(recording.url);
+          
+          if (text) {
+             const newContent = (currentVisit.content || '') + `<p><b>[语音转写 ${new Date().toLocaleTimeString()}]</b>: ${text}</p>`;
+             setCurrentVisit(prev => ({ ...prev, content: newContent }));
+          } else {
+             alert("未能识别到有效语音。");
+          }
+      } catch (e: any) {
+          alert(`转写失败: ${e.message}`);
+      } finally {
+          setTranscribingId(null);
+      }
+  };
+
   const startRecording = async () => {
     try {
       // Request Mic Access
@@ -347,6 +417,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       mediaRecorder.start();
 
       // --- 2. Real-time Processing (AudioContext) ---
+      // Keeping this for users who want live feedback, but the "File Transcribe" is more robust.
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioContext();
       if (audioCtx.state === 'suspended') {
@@ -365,14 +436,12 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
       // --- 3. iFlytek Streaming Session ---
       const initSession = () => {
-        console.log("Initializing iFlytek Session...");
         const session = new IflytekStreamingSession(
           (text, isFinal) => {
              // Intelligently append text
              setCurrentVisit(prev => {
                 const prevContent = prev.content || '';
-                // Avoid duplicating text if iFlytek sends corrections, 
-                // but since we are append-only here, just append.
+                // Simple append for now
                 return {
                     ...prev,
                     content: prevContent + text
@@ -381,20 +450,11 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
           },
           (err) => {
              console.error("Stream Error", err);
-             if (err instanceof IflytekError) {
-                 if (err.isFatal) {
-                     alert(`讯飞语音转写失败：${err.message}\n建议检查配置或套餐状态。`);
-                     stopRecordingResources(); 
-                     return;
-                 } else {
-                     console.warn(`Non-fatal error: ${err.message}. Retrying...`);
-                 }
-             }
+             // Non-blocking error for live stream, user can still rely on recorded file
           },
           () => setRecordingState('recording'),
           () => {
              if (isRecordingRef.current) {
-                console.log("iFlytek Session Closed, Auto-Restarting...");
                 setRecordingState('connecting');
                 // Re-connect delay
                 setTimeout(() => {
@@ -634,7 +694,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     
     setIsAnalyzing(true);
     try {
-      const result = await analyzeVisitNote(rawText, currentVisit.clientName || "Unknown");
+      const result = await analyzeVisitNote(rawText, currentVisit.clientName || "Unknown", selectedAiModel);
       setCurrentVisit(prev => ({ ...prev, ...result }));
     } catch (e) {
       alert("AI 分析失败。");
@@ -651,7 +711,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     }
     setIsGeneratingEmail(true);
     try {
-      const email = await generateFollowUpEmail(currentVisit as Visit, 'Formal');
+      const email = await generateFollowUpEmail(currentVisit as Visit, 'Formal', selectedAiModel);
       setCurrentVisit(prev => ({ ...prev, followUpDraft: email }));
     } catch (e) {
       alert("邮件生成失败。");
@@ -661,6 +721,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   };
 
   const formatDuration = (sec: number) => {
+    if (!sec) return '文件上传';
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
@@ -1185,33 +1246,52 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                  <label className="block text-xs font-semibold text-slate-500 uppercase">录音文件 ({currentVisit.recordings?.length})</label>
                  <div className="grid gap-2">
                     {currentVisit.recordings?.map((rec, index) => (
-                        <div key={rec.id || index} className="flex items-center justify-between p-2 bg-indigo-50 border border-indigo-100 rounded-lg">
-                           <div className="flex items-center overflow-hidden">
-                              <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center mr-3 flex-shrink-0 text-indigo-600">
-                                 <PlayCircle className="w-5 h-5" />
-                              </div>
-                              <div className="min-w-0">
-                                 <p className="text-xs font-medium text-slate-700">录音 {index + 1}</p>
-                                 <p className="text-[10px] text-slate-400">{rec.duration ? formatDuration(rec.duration) : '未知时长'} • {new Date(rec.timestamp).toLocaleTimeString()}</p>
-                              </div>
+                        <div key={rec.id || index} className="flex flex-col p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
+                           <div className="flex items-center justify-between mb-2">
+                               <div className="flex items-center overflow-hidden">
+                                  <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center mr-3 flex-shrink-0 text-indigo-600">
+                                     <PlayCircle className="w-5 h-5" />
+                                  </div>
+                                  <div className="min-w-0">
+                                     <p className="text-xs font-bold text-slate-700">录音 {index + 1}</p>
+                                     <p className="text-[10px] text-slate-400">
+                                        {new Date(rec.timestamp).toLocaleString('zh-CN', {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})} 
+                                        {rec.duration ? ` • ${formatDuration(rec.duration)}` : ''}
+                                     </p>
+                                  </div>
+                               </div>
+                               {!isReadOnly && (
+                                   <div className="flex items-center">
+                                      <button 
+                                        type="button"
+                                        onClick={() => handleDeleteRecording(index)}
+                                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                        title="删除此录音"
+                                      >
+                                         <Trash2 className="w-4 h-4" />
+                                      </button>
+                                   </div>
+                               )}
                            </div>
-                           <div className="flex items-center">
-                              <audio src={rec.url} controls className="h-6 w-32 md:w-48 mr-2" />
-                              {!isReadOnly && (
-                                  <button 
-                                    type="button"
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        handleDeleteRecording(index);
-                                    }} 
-                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all ml-3 flex-shrink-0 z-10 relative cursor-pointer"
-                                    title="删除此录音"
-                                  >
-                                     <Trash2 className="w-4 h-4" />
-                                  </button>
-                              )}
-                           </div>
+                           
+                           {/* Audio Controls */}
+                           <audio src={rec.url} controls className="w-full h-8 mb-2" />
+                           
+                           {/* Transcribe Button */}
+                           {!isReadOnly && (
+                               <button 
+                                  onClick={() => handleTranscribeAudio(rec)}
+                                  disabled={transcribingId === rec.id}
+                                  className={`w-full py-1.5 flex items-center justify-center text-xs font-medium rounded border transition-colors ${
+                                      transcribingId === rec.id 
+                                      ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200' 
+                                      : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
+                                  }`}
+                               >
+                                  {transcribingId === rec.id ? <Loader2 className="w-3 h-3 animate-spin mr-1"/> : <FileText className="w-3 h-3 mr-1"/>}
+                                  {transcribingId === rec.id ? '正在转写中...' : '转写为文字 (Gemini AI)'}
+                               </button>
+                           )}
                         </div>
                     ))}
                  </div>
@@ -1228,7 +1308,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                        {recordingState === 'connecting' ? (
                           <span className="text-amber-500 animate-pulse flex items-center"><Wifi className="w-3 h-3 mr-1"/> 连接云端中...</span>
                        ) : (
-                          <span className="text-red-500 animate-pulse flex items-center"><Mic className="w-3 h-3 mr-1"/> 正在转写 {formatDuration(currentAudioDuration)}</span>
+                          <span className="text-red-500 animate-pulse flex items-center"><Mic className="w-3 h-3 mr-1"/> 正在录音 {formatDuration(currentAudioDuration)}</span>
                        )}
                     </span>
                  )}
@@ -1330,40 +1410,65 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                 />
              </div>
              
-             {/* Floating Record Button - Hide in full screen mode to avoid clutter or overlap issues */}
+             {/* Floating Record & Upload Buttons - Hide in full screen mode */}
              {!expandedSection && !isReadOnly && (
-               <button 
-                 onClick={handleVoiceToggle}
-                 className={`absolute bottom-4 right-4 p-4 rounded-full shadow-lg transition-all transform hover:scale-105 ${
-                   isRecording 
-                     ? 'bg-red-500 text-white shadow-red-200 ring-4 ring-red-100' 
-                     : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
-                 }`}
-                 title={isRecording ? "停止录音" : "开始录音转写"}
-               >
-                 {isRecording ? <Square className="w-6 h-6 fill-current" /> : <Mic className="w-6 h-6" />}
-               </button>
+               <div className="absolute bottom-4 right-4 flex space-x-3">
+                   {/* Upload Button */}
+                   <button 
+                     onClick={() => fileInputRef.current?.click()}
+                     className="p-3 rounded-full shadow-lg bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:scale-105 transition-all"
+                     title="上传录音文件"
+                     disabled={isRecording}
+                   >
+                     <Upload className="w-5 h-5" />
+                   </button>
+                   <input 
+                      type="file" 
+                      accept="audio/*" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      onChange={handleFileUpload}
+                   />
+
+                   {/* Mic Button */}
+                   <button 
+                     onClick={handleVoiceToggle}
+                     className={`p-3 rounded-full shadow-lg transition-all transform hover:scale-105 ${
+                       isRecording 
+                         ? 'bg-red-500 text-white shadow-red-200 ring-4 ring-red-100' 
+                         : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
+                     }`}
+                     title={isRecording ? "停止录音" : "开始录音"}
+                   >
+                     {isRecording ? <Square className="w-6 h-6 fill-current" /> : <Mic className="w-6 h-6" />}
+                   </button>
+               </div>
              )}
           </div>
         </div>
 
         {/* RIGHT COLUMN: AI Insights */}
         <div className={`flex flex-col bg-slate-50 rounded-2xl border border-slate-200 p-6 overflow-y-auto transition-all ${expandedSection === 'ai' ? 'fixed inset-0 z-50 h-full' : 'h-full'}`}>
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <h3 className="font-bold text-slate-800 flex items-center">
               <Sparkles className="w-5 h-5 mr-2 text-indigo-600" /> AI 智能洞察
             </h3>
-            <div className="flex space-x-2">
+            
+            <div className="flex items-center space-x-2">
+               {/* Model Selector */}
                {!isReadOnly && (
-                   <button 
-                     onClick={handleAIAnalyze}
-                     disabled={isAnalyzing || !currentVisit.content}
-                     className="text-xs bg-white border border-indigo-100 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-50 disabled:opacity-50 flex items-center"
+                   <select 
+                      value={selectedAiModel}
+                      onChange={(e) => setSelectedAiModel(e.target.value as AIModelType)}
+                      className="text-xs bg-white border border-indigo-100 text-slate-700 px-2 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                      title="选择分析模型"
                    >
-                     {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin mr-1"/> : null}
-                     {isAnalyzing ? '分析中...' : '生成分析'}
-                   </button>
+                      <option value="gemini">Gemini</option>
+                      <option value="deepseek">DeepSeek</option>
+                      <option value="spark">讯飞星火</option>
+                   </select>
                )}
+
                <button 
                   onClick={() => setExpandedSection(expandedSection === 'ai' ? null : 'ai')}
                   className="text-slate-400 hover:text-indigo-600 p-1.5 rounded hover:bg-slate-200"
@@ -1373,6 +1478,20 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                </button>
             </div>
           </div>
+          
+          {/* Analyze Button (Moved out of header for better mobile layout) */}
+          {!isReadOnly && (
+             <div className="mb-6">
+               <button 
+                 onClick={handleAIAnalyze}
+                 disabled={isAnalyzing || !currentVisit.content}
+                 className="w-full text-xs bg-white border border-indigo-200 text-indigo-700 px-3 py-2 rounded-lg font-bold hover:bg-indigo-50 disabled:opacity-50 flex items-center justify-center shadow-sm"
+               >
+                 {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : <BrainCircuit className="w-4 h-4 mr-2"/>}
+                 {isAnalyzing ? `正在使用 ${selectedAiModel} 分析...` : '开始智能分析'}
+               </button>
+             </div>
+          )}
 
           {!currentVisit.summary ? (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">

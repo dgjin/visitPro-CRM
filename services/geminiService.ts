@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { generateSparkContent } from "./iflytekService";
-import { Visit, Sentiment } from "../types";
+import { Visit, Sentiment, AIModelType } from "../types";
 
 const AI_MODEL_KEY = 'visitpro_ai_model';
 const DEEPSEEK_KEY_KEY = 'visitpro_deepseek_key';
@@ -63,10 +63,47 @@ export const callDeepSeek = async (messages: any[], jsonMode: boolean = false) =
 };
 
 /**
+ * Transcribes audio data to text using Gemini.
+ * @param base64Data Base64 encoded audio string (without data:audio/xxx;base64, prefix if possible, but SDK handles it mostly)
+ * @param mimeType The mime type of the audio (e.g., 'audio/mp3', 'audio/webm')
+ */
+export const transcribeAudio = async (base64Data: string, mimeType: string = 'audio/webm') => {
+  try {
+      // Clean base64 string if it contains the data URL prefix
+      const cleanBase64 = base64Data.replace(/^data:audio\/[a-z0-9]+;base64,/, "");
+
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: [
+              {
+                  role: 'user',
+                  parts: [
+                      { 
+                          inlineData: { 
+                              mimeType: mimeType, 
+                              data: cleanBase64 
+                          } 
+                      },
+                      { text: "请将这段音频中的语音逐字转写为中文文本。请忽略语气词，直接输出内容，不要包含任何开场白或结束语。" }
+                  ]
+              }
+          ]
+      });
+
+      return response.text || "";
+  } catch (error) {
+      console.error("Transcribe Audio Error:", error);
+      throw new Error("语音转写失败，请确保网络连接正常或音频格式支持。");
+  }
+};
+
+/**
  * Generates a client profile analysis.
  */
-export const generateClientProfile = async (clientName: string, industry: string, region: string) => {
+export const generateClientProfile = async (clientName: string, industry: string, region: string, modelOverride?: AIModelType) => {
   const config = getAIConfig();
+  const activeModel = modelOverride || config.model;
   
   const systemPrompt = "你是一位资深的行业研究员和财务分析师，擅长通过财务数据和产业链结构挖掘企业价值。";
   const userPrompt = `
@@ -86,17 +123,23 @@ export const generateClientProfile = async (clientName: string, industry: string
 
     3. equity: (Array) 一个数组，模拟可能的股东结构（上游）。包含 name (股东名), percentage (持股比例数字, 0-100), type ('individual' 或 'institution')。
     4. subsidiaries: (Array) 一个数组，模拟可能的对外投资/子公司（下游）。包含 name (子公司名), percentage (持股比例, 0-100), industry (行业)。
+    
+    5. tags: (Array) 基于以上分析，生成 5-8 个简短精准的标签（每个标签不超过6个字）。标签应涵盖以下维度：
+       - 行业地位（如：行业龙头、市场挑战者、区域霸主）
+       - 财务状况（如：现金流充裕、高负债、盈利能力强）
+       - 舆情情况（如：口碑良好、产品争议、品牌溢价高）
+       - 核心能力（如：研发强、渠道广、成本控制佳）
   `;
 
   try {
     let resultText = "{}";
 
-    if (config.model === 'deepseek') {
+    if (activeModel === 'deepseek') {
         resultText = await callDeepSeek([
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
         ], true);
-    } else if (config.model === 'spark') {
+    } else if (activeModel === 'spark') {
         resultText = await generateSparkContent(systemPrompt + "\n" + userPrompt + "\n请直接返回JSON字符串。");
     } else {
         // Gemini
@@ -136,9 +179,13 @@ export const generateClientProfile = async (clientName: string, industry: string
                                 },
                                 required: ["name", "percentage"]
                             }
+                        },
+                        tags: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING }
                         }
                     },
-                    required: ["financials", "supplyChain", "equity", "subsidiaries"]
+                    required: ["financials", "supplyChain", "equity", "subsidiaries", "tags"]
                 }
             }
         });
@@ -162,13 +209,16 @@ export const generateClientProfile = async (clientName: string, industry: string
         subsidiaries: [
             { name: "北京研发中心", percentage: 100, industry: "科技研发" },
             { name: "上海分公司", percentage: 100, industry: "销售" }
-        ]
+        ],
+        tags: ["行业独角兽", "高成长性", "现金流充裕", "研发强劲", "供应链稳定", "品牌溢价高"]
     };
   }
 };
 
-export const analyzeVisitNote = async (note: string, clientName: string) => {
+export const analyzeVisitNote = async (note: string, clientName: string, modelOverride?: AIModelType) => {
     const config = getAIConfig();
+    const activeModel = modelOverride || config.model;
+
     const systemPrompt = "你是一位专业的销售管理顾问。请分析拜访记录，提取关键信息。";
     const userPrompt = `
     请分析以下关于客户 "${clientName}" 的拜访记录：
@@ -183,14 +233,15 @@ export const analyzeVisitNote = async (note: string, clientName: string) => {
     try {
         let resultText = "{}";
 
-        if (config.model === 'deepseek') {
+        if (activeModel === 'deepseek') {
              resultText = await callDeepSeek([
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt }
              ], true);
-        } else if (config.model === 'spark') {
+        } else if (activeModel === 'spark') {
              resultText = await generateSparkContent(systemPrompt + "\n" + userPrompt + "\n请直接返回JSON字符串。");
         } else {
+             // Default to Gemini
              const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
              const response = await ai.models.generateContent({
                 model: "gemini-3-flash-preview",
@@ -218,15 +269,17 @@ export const analyzeVisitNote = async (note: string, clientName: string) => {
         console.error("Analyze Visit Error", e);
         // Fallback for when API fails (e.g. Insufficient Balance)
         return {
-            summary: `(自动生成) 由于 AI 服务暂时不可用或余额不足，无法生成智能摘要。原始记录片段：${note.substring(0, 100)}...`,
+            summary: `(自动生成) 由于 ${activeModel} 服务暂时不可用或余额不足，无法生成智能摘要。原始记录片段：${note.substring(0, 100)}...`,
             sentiment: Sentiment.Neutral,
             actionItems: ["检查 AI 服务配置", "手动整理会议纪要"]
         };
     }
 };
 
-export const generateFollowUpEmail = async (visit: Visit, tone: string) => {
+export const generateFollowUpEmail = async (visit: Visit, tone: string, modelOverride?: AIModelType) => {
     const config = getAIConfig();
+    const activeModel = modelOverride || config.model;
+
     const systemPrompt = "你是一位专业的销售。请根据拜访记录写一封跟进邮件。";
     const userPrompt = `
     背景：
@@ -240,12 +293,12 @@ export const generateFollowUpEmail = async (visit: Visit, tone: string) => {
     `;
     
     try {
-        if (config.model === 'deepseek') {
+        if (activeModel === 'deepseek') {
             return await callDeepSeek([
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt }
             ]);
-        } else if (config.model === 'spark') {
+        } else if (activeModel === 'spark') {
             return await generateSparkContent(systemPrompt + "\n" + userPrompt);
         } else {
             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });

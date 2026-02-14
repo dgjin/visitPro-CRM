@@ -57,6 +57,7 @@ create table if not exists public.clients (
     "subsidiaries" jsonb default '[]'::jsonb, -- 存储子公司数据
     "financialAnalysis" text,
     "supplyChainInfo" text,
+    "tags" jsonb default '[]'::jsonb, -- AI 生成的标签
     
     "created_at" timestamp with time zone default timezone('utc'::text, now())
 );
@@ -154,6 +155,9 @@ begin
   end if;
   if not exists (select 1 from information_schema.columns where table_name = 'clients' and column_name = 'supplyChainInfo') then
     alter table public.clients add column "supplyChainInfo" text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_name = 'clients' and column_name = 'tags') then
+    alter table public.clients add column "tags" jsonb default '[]'::jsonb;
   end if;
 end $$;
 

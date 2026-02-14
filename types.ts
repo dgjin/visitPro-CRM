@@ -51,6 +51,7 @@ export interface Client {
   subsidiaries?: Subsidiary[];     // Downstream: Subsidiaries
   financialAnalysis?: string;
   supplyChainInfo?: string;
+  tags?: string[]; // AI Generated Labels (Industry Status, Financials, etc.)
 }
 
 export interface VisitRecording {

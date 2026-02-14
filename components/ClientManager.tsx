@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Client, ClientStatus, CustomFieldDefinition, Contact, Shareholder, Subsidiary, User } from '../types';
+import { Client, ClientStatus, CustomFieldDefinition, Contact, Shareholder, Subsidiary, User, AIModelType } from '../types';
 import { 
   Search, Plus, MapPin, Mail, Phone, Building, Briefcase, 
   X, Loader2, BarChart2, Users, Save, Edit2, Trash2, PieChart as PieIcon,
@@ -18,7 +18,8 @@ import {
   CheckSquare,
   Square as SquareIcon,
   Download,
-  ArrowRight
+  ArrowRight,
+  Tag
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -283,6 +284,17 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
   // Batch Operations State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // AI Model State
+  const [selectedAiModel, setSelectedAiModel] = useState<AIModelType>('gemini');
+
+  // Load default model from local storage
+  useEffect(() => {
+      const savedModel = localStorage.getItem('visitpro_ai_model') as AIModelType;
+      if (savedModel) {
+          setSelectedAiModel(savedModel);
+      }
+  }, []);
+
   // --- External Control Effects ---
   useEffect(() => {
     if (initialSearchTerm !== undefined) {
@@ -388,13 +400,14 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
     if (!selectedClient || isReadOnly) return;
     setIsProfileLoading(true);
     try {
-      const profile = await generateClientProfile(selectedClient.name, selectedClient.industry, selectedClient.region);
+      const profile = await generateClientProfile(selectedClient.name, selectedClient.industry, selectedClient.region, selectedAiModel);
       setSelectedClient(prev => prev ? {
         ...prev,
         equityStructure: profile.equity, // Array of Shareholders
         subsidiaries: profile.subsidiaries, // Array of Subsidiaries
         financialAnalysis: profile.financials,
         supplyChainInfo: profile.supplyChain,
+        tags: profile.tags || [],
       } : null);
       setVisualMode('MAP'); // Switch to map view to see result
     } catch (e) {
@@ -416,6 +429,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       subsidiaries: [],
       financialAnalysis: "",
       supplyChainInfo: "",
+      tags: [],
       customFields: {},
       ownerId: currentUser?.id,
       ownerName: currentUser?.name || "未知用户"
@@ -463,7 +477,8 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
         equityStructure: selectedClient.equityStructure || [],
         subsidiaries: selectedClient.subsidiaries || [],
         financialAnalysis: selectedClient.financialAnalysis || '',
-        supplyChainInfo: selectedClient.supplyChainInfo || ''
+        supplyChainInfo: selectedClient.supplyChainInfo || '',
+        tags: selectedClient.tags || []
       };
 
       await upsertClient(clientToSave);
@@ -476,11 +491,13 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
 
       setIsSaving(false);
       setSelectedClient(null);
-    } catch (err: any) {
-      console.error("Failed to save client:", err);
+    } catch (error: unknown) {
+      console.error("Failed to save client:", error);
       
-      if (err.message && err.message.startsWith("PARTIAL_SUCCESS:")) {
-         const msg = err.message.replace("PARTIAL_SUCCESS: ", "");
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      if (errorMessage.startsWith("PARTIAL_SUCCESS:")) {
+         const msg = errorMessage.replace("PARTIAL_SUCCESS: ", "");
          alert(`⚠️ ${msg}\n\n建议联系管理员更新数据库结构。`);
          setIsSaving(false);
          setSelectedClient(null);
@@ -494,7 +511,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
          return;
       }
 
-      alert(`保存失败: ${err.message || '请检查网络或配置'}`);
+      alert(`保存失败: ${errorMessage || '请检查网络或配置'}`);
       setIsSaving(false);
     }
   };
@@ -853,6 +870,48 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                 <div className="flex-1 overflow-hidden bg-slate-50 relative">
                    {activeTab === 'BASIC' && (
                       <div className="h-full overflow-y-auto p-6">
+                         {/* Tags Section (Always visible at top of BASIC tab) */}
+                         <div className="mb-4 flex flex-wrap gap-2 animate-fade-in-down">
+                            {selectedClient.tags && selectedClient.tags.length > 0 ? (
+                                selectedClient.tags.map((tag, idx) => (
+                                    <div key={idx} className="flex items-center px-3 py-1 bg-white border border-indigo-100 rounded-full shadow-sm text-xs text-indigo-700 font-medium hover:bg-indigo-50 transition-colors cursor-default">
+                                        <Tag className="w-3 h-3 mr-1.5 text-indigo-400" />
+                                        {tag}
+                                        {!isReadOnly && (
+                                            <button 
+                                                onClick={() => {
+                                                    const newTags = [...(selectedClient.tags || [])];
+                                                    newTags.splice(idx, 1);
+                                                    setSelectedClient({...selectedClient, tags: newTags});
+                                                }}
+                                                className="ml-2 text-indigo-300 hover:text-indigo-500"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-xs text-slate-400 flex items-center px-2 py-1 italic">
+                                    <Tag className="w-3 h-3 mr-1.5 opacity-50" />
+                                    暂无 AI 标签，点击“生成画像”自动获取
+                                </div>
+                            )}
+                            {!isReadOnly && (
+                                <button 
+                                    onClick={() => {
+                                        const tag = prompt("添加新标签:");
+                                        if (tag) {
+                                            setSelectedClient(prev => prev ? ({...prev, tags: [...(prev.tags || []), tag]}) : null);
+                                        }
+                                    }}
+                                    className="flex items-center px-3 py-1 bg-slate-100 border border-transparent rounded-full text-xs text-slate-500 hover:bg-slate-200 transition-colors"
+                                >
+                                    <Plus className="w-3 h-3 mr-1" /> 添加
+                                </button>
+                            )}
+                         </div>
+
                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                             {/* Basic Fields */}
                             <div className="space-y-4 lg:col-span-1">
@@ -946,14 +1005,25 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                         企业画像与财务分析
                                      </h4>
                                      {!isReadOnly && (
-                                         <button 
-                                            onClick={handleGenerateProfile}
-                                            disabled={isProfileLoading}
-                                            className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-100 flex items-center font-medium transition-colors"
-                                         >
-                                            {isProfileLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin"/> : <RefreshCw className="w-3 h-3 mr-1"/>}
-                                            AI 生成画像
-                                         </button>
+                                         <div className="flex items-center space-x-2">
+                                            <select
+                                                value={selectedAiModel}
+                                                onChange={(e) => setSelectedAiModel(e.target.value as AIModelType)}
+                                                className="text-xs bg-white border border-indigo-100 text-slate-700 px-2 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                                            >
+                                                <option value="gemini">Gemini</option>
+                                                <option value="deepseek">DeepSeek</option>
+                                                <option value="spark">讯飞星火</option>
+                                            </select>
+                                            <button 
+                                                onClick={handleGenerateProfile}
+                                                disabled={isProfileLoading}
+                                                className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-100 flex items-center font-medium transition-colors"
+                                            >
+                                                {isProfileLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin"/> : <RefreshCw className="w-3 h-3 mr-1"/>}
+                                                生成画像
+                                            </button>
+                                         </div>
                                      )}
                                   </div>
                                   

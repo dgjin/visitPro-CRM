@@ -7,11 +7,13 @@ import { AdminPanel } from './components/AdminPanel';
 import { UserManager } from './components/UserManager';
 import { DepartmentManager } from './components/DepartmentManager';
 import { RoleManager } from './components/RoleManager';
-import { VoiceAssistant } from './components/VoiceAssistant'; // Import VoiceAssistant
+import { VoiceAssistant } from './components/VoiceAssistant'; 
+import { LoginPage } from './components/LoginPage'; // New
+import { ForceChangePasswordModal } from './components/ForceChangePasswordModal'; // New
 import { ViewState, Client, Visit, User, ClientStatus, Sentiment, CustomFieldDefinition, Department, Role } from './types';
-import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection, upsertUser } from './services/supabaseService';
+import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection, upsertUser, hashPassword } from './services/supabaseService';
 
-// Mock Data Definitions (Only used as fallback when NO DB connection exists)
+// Mock Data Definitions (Only used as fallback)
 const MOCK_ROLES: Role[] = [
   { id: 'r1', name: '管理员', description: '系统完全访问权限' },
   { id: 'r2', name: '销售经理', description: '管理团队和查看所有报表' },
@@ -21,112 +23,22 @@ const MOCK_ROLES: Role[] = [
 const MOCK_DEPARTMENTS: Department[] = [
   { id: 'd1', name: '总部', parentId: null },
   { id: 'd2', name: '销售部', parentId: 'd1' },
-  { id: 'd3', name: '华北区', parentId: 'd2' },
-  { id: 'd4', name: '华南区', parentId: 'd2' },
-  { id: 'd5', name: '研发部', parentId: 'd1' },
 ];
 
 const MOCK_USER: User = {
   id: 'u1',
-  name: '陈亚力',
-  email: 'chen@visitpro.com',
-  phone: '138-0013-8000',
+  name: '陈亚力 (Mock)',
+  email: 'admin@visitpro.com',
   role: '管理员',
   roleId: 'r1',
-  departmentId: 'd3',
+  departmentId: 'd1',
   avatarUrl: 'https://picsum.photos/200/200',
-  status: 'active'
+  status: 'active',
+  // Mock hashed '123456'
+  password: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92' 
 };
 
-const MOCK_USERS_LIST: User[] = [
-  MOCK_USER,
-  { id: 'u2', name: '张经理', email: 'zhang@visitpro.com', phone: '139-1234-5678', role: '销售经理', roleId: 'r2', departmentId: 'd2', avatarUrl: 'https://ui-avatars.com/api/?name=Zhang', status: 'active' },
-  { id: 'u3', name: '王技术', email: 'tech@visitpro.com', phone: '137-8765-4321', role: '技术支持', roleId: 'r3', departmentId: 'd5', avatarUrl: 'https://ui-avatars.com/api/?name=Tech', status: 'active' }
-];
-
-const MOCK_CLIENTS: Client[] = [
-  {
-    id: 'c1',
-    name: '科创未来科技有限公司',
-    industry: '科技',
-    status: ClientStatus.Active,
-    region: '北京, 海淀区',
-    ownerName: '陈亚力',
-    contacts: [
-      { id: 'ct1', name: '李莎拉', role: 'CTO', email: 'sarah@technova.com', phone: '138-0000-0101' }
-    ],
-    equityStructure: [
-      { name: '创始人团队', percentage: 40, type: 'individual' },
-      { name: '红杉资本', percentage: 30, type: 'institution' },
-      { name: '员工期权池', percentage: 30, type: 'individual' }
-    ],
-    financialAnalysis: '第二季度营收同比增长 20%。烧钱率稳定，现金流健康。',
-    supplyChainInfo: '主要服务器托管在阿里云（华北区），部分依赖 AWS。',
-    customFields: {
-      'priority': 'High',
-      'contract_expiry': '2024-12-31'
-    }
-  },
-  {
-    id: 'c2',
-    name: '绿叶物流集团',
-    industry: '物流',
-    status: ClientStatus.Lead,
-    region: '上海, 浦东新区',
-    ownerName: '陈亚力',
-    contacts: [
-      { id: 'ct2', name: '王麦克', role: '运营总监', email: 'mike@greenleaf.com', phone: '139-0000-0102' }
-    ]
-  },
-  {
-    id: 'c3',
-    name: '巅峰医疗健康',
-    industry: '医疗',
-    status: ClientStatus.Churned,
-    region: '广州, 天河区',
-    ownerName: '张经理',
-    contacts: []
-  }
-];
-
-const MOCK_VISITS: Visit[] = [
-  {
-    id: 'v1',
-    clientId: 'c1',
-    clientName: '科创未来科技有限公司',
-    date: new Date(Date.now() - 86400000 * 2).toISOString(), // 2 days ago
-    type: '线下拜访',
-    location: '科创未来大厦 301 会议室',
-    clientParticipants: '李莎拉, 王技术',
-    ourParticipants: '陈亚力',
-    ownerId: 'u1',
-    ownerName: '陈亚力',
-    content: '讨论了第四季度的路线图。他们担心目前的 API 速率限制会影响扩展计划。',
-    summary: '会议主要讨论了 Q4 路线图。客户对 API 速率限制表示担忧，这可能会影响他们的业务扩展。',
-    sentiment: Sentiment.Neutral,
-    actionItems: ['检查 API 使用日志', '发送企业级方案报价'],
-    followUpDraft: '李总您好，\n\n感谢您的会面。我正在查看 API 限制问题，稍后会发送企业级方案给您...',
-    customFields: {
-      'cost_estimate': '5000'
-    }
-  },
-  {
-    id: 'v2',
-    clientId: 'c2',
-    clientName: '绿叶物流集团',
-    date: new Date(Date.now() - 86400000 * 5).toISOString(),
-    type: '线上会议',
-    location: '腾讯会议 (ID: 123-456-789)',
-    clientParticipants: '王麦克',
-    ourParticipants: '陈亚力, 张经理',
-    ownerId: 'u1',
-    ownerName: '陈亚力',
-    content: '初步介绍沟通。他们需要在下周看产品演示。',
-    summary: '初步需求挖掘顺利。客户表现出强烈兴趣，并要求下周进行完整的产品演示。',
-    sentiment: Sentiment.Positive,
-    actionItems: ['安排售前工程师演示', '发送成功案例集']
-  }
-];
+// ... (Other Mock Data if needed) ...
 
 // Color Palettes
 const THEME_PALETTES: Record<string, Record<number, string>> = {
@@ -214,7 +126,9 @@ const App: React.FC = () => {
   const [currentView, setView] = useState<ViewState>('DASHBOARD');
   
   // App State
-  const [currentUser, setCurrentUser] = useState<User>(MOCK_USER);
+  // Initialize with NULL to trigger Login Flow
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isForcePasswordChange, setIsForcePasswordChange] = useState(false);
   const [theme, setTheme] = useState('indigo');
   
   // Data States
@@ -231,7 +145,7 @@ const App: React.FC = () => {
   const [globalSearchTerm, setGlobalSearchTerm] = useState<string>('');
   const [triggerNewVisit, setTriggerNewVisit] = useState(false);
   const [triggerNewClient, setTriggerNewClient] = useState(false);
-  const [draftVisit, setDraftVisit] = useState<Partial<Visit> | null>(null); // For Check-in Pre-fill
+  const [draftVisit, setDraftVisit] = useState<Partial<Visit> | null>(null); 
   
   // Custom Fields State
   const [fieldDefinitions, setFieldDefinitions] = useState<CustomFieldDefinition[]>(() => {
@@ -266,20 +180,14 @@ const App: React.FC = () => {
     const isEnvMode = isConfiguredFromEnv();
     
     if (supabase) {
-      console.log(`[App] Supabase initialized. Mode: ${isEnvMode ? 'ENV (Forced)' : 'Local Storage'}`);
-      
       // 2. Explicit Connection Check
       if (isEnvMode) {
           const check = await checkConnection();
           if (!check.success) {
-              const msg = `⚠️ 环境变量配置已检测到，但数据库连接失败。\n\n错误: ${check.message}\n请检查 SUPABASE_URL 和 SUPABASE_KEY 是否正确。`;
-              console.error(msg);
-              alert(msg);
               setConnectionMsg("数据库连接失败 (ENV)");
           } else {
-              setConnectionMsg("已通过环境变量连接数据库 ✅");
               // Auto-clear success message after 3s
-              setTimeout(() => setConnectionMsg(null), 3000);
+              // setConnectionMsg("已连接");
           }
       }
 
@@ -292,47 +200,52 @@ const App: React.FC = () => {
             fetchRoles()
         ]);
         
-        // Handle "Null" returns from fetch errors
-        if (dbClients === null && isEnvMode) {
-            console.warn("[App] Fetch returned null while in Env mode. Check RLS policies.");
-        }
-
         setClients(dbClients || []);
         setVisits(dbVisits || []);
         setUsers(dbUsers || []);
         setDepartments(dbDepts || []);
         setRoles(dbRoles || []);
         
-        if (dbUsers && dbUsers.length > 0) {
-            // Find admin or default to first
-            const found = dbUsers.find(u => u.role === '管理员') || dbUsers[0];
-            setCurrentUser(found);
-        }
+        // Note: We do NOT set currentUser here anymore. Login handles it.
+        // If users list is empty but we are logged in, we might need to refresh user data?
       } catch (err) {
          console.error("Failed to fetch data from Supabase:", err);
-         alert("Connected to Supabase but failed to fetch data. Check browser console for RLS or table errors.");
       }
       
     } else {
-      console.log("Supabase not configured (No Env or LocalStorage). Using Mock Data.");
-      setClients(MOCK_CLIENTS);
-      setVisits(MOCK_VISITS);
-      setUsers(MOCK_USERS_LIST);
+      // Fallback Mock Data Loading
+      setClients([]);
+      setVisits([]);
+      setUsers([MOCK_USER]); // Ensure at least admin exists in mock
       setDepartments(MOCK_DEPARTMENTS);
       setRoles(MOCK_ROLES);
-      setCurrentUser(MOCK_USER);
     }
     
     setIsLoading(false);
   }, []);
 
-  // Initialize Data on Mount
+  // Initialize Data on Login Success
   useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+    if (currentUser) {
+        refreshData();
+        checkDefaultPassword(currentUser);
+    }
+  }, [currentUser, refreshData]);
+
+  // Check if password matches default '123456'
+  const checkDefaultPassword = async (user: User) => {
+      const defaultHash = await hashPassword('123456');
+      if (user.password === defaultHash) {
+          setIsForcePasswordChange(true);
+      } else {
+          setIsForcePasswordChange(false);
+      }
+  };
 
   // Role Based Access Control Logic
   useEffect(() => {
+    if (!currentUser) return;
+
     const getRoleName = (u: User) => {
       if (u.roleId && roles.length > 0) {
         const foundRole = roles.find(r => r.id === u.roleId);
@@ -350,23 +263,13 @@ const App: React.FC = () => {
     }
   }, [currentUser, currentView, roles]);
 
-  // User Switch Handler - Enhanced to apply theme correctly
   const handleSwitchUser = (user: User) => {
       setCurrentUser(user);
-      // Theme effect will run automatically due to dependency on currentUser
   };
 
-  // User Profile Update Handler
   const handleUpdateUserProfile = async (updatedUser: User) => {
-      // 1. Update DB
       await upsertUser(updatedUser);
-      
-      // 2. Update Local State (Users List)
       setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
-      
-      // 3. Update Current User
-      // Important: We update currentUser so the app reflects changes immediately.
-      // The theme effect will follow if themePreference changed.
       setCurrentUser(updatedUser);
   };
 
@@ -377,56 +280,47 @@ const App: React.FC = () => {
 
   const handleCheckIn = (visitData: Partial<Visit>) => {
       setDraftVisit(visitData);
-      setTriggerNewVisit(false); // Reset to ensure effect triggers
+      setTriggerNewVisit(false); 
       setView('VISITS');
-      // Small delay to ensure view switches before triggering new visit logic
       setTimeout(() => setTriggerNewVisit(true), 50);
   };
 
-  // Handle Voice Commands
   const handleVoiceCommand = (cmd: any) => {
+      if (!currentUser) return; // Ignore if not logged in
       console.log("Voice Command Received:", cmd);
       
-      // 1. Navigation
       if (cmd.action === 'NAVIGATE' && cmd.parameters?.view) {
           setView(cmd.parameters.view);
           return;
       }
-
-      // 2. Create Visit
       if (cmd.action === 'CREATE_VISIT') {
           setView('VISITS');
-          // Reset then trigger to ensure effect runs even if already true
           setTriggerNewVisit(false); 
           setTimeout(() => setTriggerNewVisit(true), 100);
           return;
       }
-
-      // 3. Create Client
       if (cmd.action === 'CREATE_CLIENT') {
           setView('CLIENTS');
           setTriggerNewClient(false);
           setTimeout(() => setTriggerNewClient(true), 100);
           return;
       }
-
-      // 4. Search
       if (cmd.action === 'SEARCH' && cmd.parameters?.query) {
-          const targetView = cmd.parameters.view || 'CLIENTS'; // Default to clients
+          const targetView = cmd.parameters.view || 'CLIENTS'; 
           setView(targetView);
-          // Set to empty first to ensure change detection if term is identical
           setGlobalSearchTerm('');
           setTimeout(() => setGlobalSearchTerm(cmd.parameters.query), 50);
       }
-      
-      // 5. Switch Theme
       if (cmd.action === 'SWITCH_THEME' && cmd.parameters?.theme) {
-          // For voice commands, we update the user preference immediately
-          if (currentUser) {
-              const updatedUser = { ...currentUser, themePreference: cmd.parameters.theme };
-              handleUpdateUserProfile(updatedUser);
-          }
+          const updatedUser = { ...currentUser, themePreference: cmd.parameters.theme };
+          handleUpdateUserProfile(updatedUser);
       }
+  };
+
+  const handleLogout = () => {
+      setCurrentUser(null);
+      setIsForcePasswordChange(false);
+      setConnectionMsg(null);
   };
 
   const themePalette = THEME_PALETTES[theme] || THEME_PALETTES.indigo;
@@ -446,101 +340,122 @@ const App: React.FC = () => {
     }
   `;
 
+  // --- Render ---
+
   return (
     <>
       <style>{themeStyles}</style>
       
-      {/* Toast Notification for Connection Status */}
-      {connectionMsg && (
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-fade-in-down">
-             <div className={`px-4 py-2 rounded-lg shadow-lg text-sm font-medium flex items-center ${connectionMsg.includes('失败') ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white'}`}>
-                {connectionMsg}
-             </div>
-          </div>
-      )}
+      {!currentUser ? (
+          <LoginPage onLoginSuccess={(u) => setCurrentUser(u)} />
+      ) : (
+          <>
+            {/* 1. Force Change Password Modal */}
+            {isForcePasswordChange && (
+                <ForceChangePasswordModal 
+                   user={currentUser} 
+                   onPasswordChanged={(updatedUser) => {
+                       handleUpdateUserProfile(updatedUser);
+                       setIsForcePasswordChange(false);
+                       alert("密码修改成功，欢迎使用 VisitPro CRM！");
+                   }} 
+                />
+            )}
 
-      <Layout 
-        currentView={currentView} 
-        setView={setView} 
-        user={currentUser}
-        allUsers={users}
-        onSwitchUser={handleSwitchUser}
-        onUpdateUser={handleUpdateUserProfile}
-        currentTheme={theme}
-        setTheme={setTheme}
-        roles={roles}
-      >
-        {currentView === 'DASHBOARD' && (
-          <Dashboard 
-            visits={visits} 
-            clients={clients} 
-            users={users}
-            departments={departments}
-            currentUser={currentUser}
-            onNavigate={(view) => setView(view)} 
-            onViewVisit={handleViewVisit}
-            onCheckIn={handleCheckIn}
-          />
-        )}
-        {currentView === 'CLIENTS' && (
-          <ClientManager 
-            clients={clients} 
-            setClients={setClients} 
-            fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'CLIENT')}
-            currentUser={currentUser}
-            initialSearchTerm={globalSearchTerm}
-            shouldCreateNew={triggerNewClient}
-            onResetTrigger={() => { setTriggerNewClient(false); setGlobalSearchTerm(''); }}
-          />
-        )}
-        {currentView === 'VISITS' && (
-          <VisitManager 
-            visits={visits} 
-            setVisits={setVisits} 
-            clients={clients} 
-            fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'VISIT')}
-            currentUser={currentUser}
-            initialVisitId={selectedVisitId}
-            onClearInitialVisit={() => setSelectedVisitId(null)}
-            shouldCreateNew={triggerNewVisit}
-            onResetTrigger={() => setTriggerNewVisit(false)}
-            initialSearchTerm={globalSearchTerm} // Pass global search term
-            draftVisit={draftVisit} // Pass smart check-in draft
-            onClearDraft={() => setDraftVisit(null)}
-          />
-        )}
-        {currentView === 'USERS' && (
-          <UserManager 
-            users={users} 
-            setUsers={setUsers}
-            roles={roles}
-            departments={departments}
-          />
-        )}
-        {currentView === 'DEPARTMENTS' && (
-          <DepartmentManager 
-            departments={departments} 
-            setDepartments={setDepartments} 
-            users={users}
-          />
-        )}
-        {currentView === 'ROLES' && (
-          <RoleManager 
-            roles={roles} 
-            setRoles={setRoles} 
-          />
-        )}
-        {currentView === 'ADMIN' && (
-          <AdminPanel 
-            fieldDefinitions={fieldDefinitions}
-            setFieldDefinitions={setFieldDefinitions}
-            onConfigSave={refreshData}
-          />
-        )}
-      </Layout>
-      
-      {/* Floating Voice Assistant */}
-      <VoiceAssistant onCommand={handleVoiceCommand} />
+            {/* 2. Connection Toast */}
+            {connectionMsg && (
+                <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-fade-in-down">
+                   <div className={`px-4 py-2 rounded-lg shadow-lg text-sm font-medium flex items-center ${connectionMsg.includes('失败') ? 'bg-red-500 text-white' : 'bg-emerald-500 text-white'}`}>
+                      {connectionMsg}
+                   </div>
+                </div>
+            )}
+
+            {/* 3. Main App Layout */}
+            <Layout 
+              currentView={currentView} 
+              setView={setView} 
+              user={currentUser}
+              allUsers={users}
+              onSwitchUser={handleSwitchUser}
+              onUpdateUser={handleUpdateUserProfile}
+              currentTheme={theme}
+              setTheme={setTheme}
+              roles={roles}
+              onLogout={handleLogout}
+            >
+              {currentView === 'DASHBOARD' && (
+                <Dashboard 
+                  visits={visits} 
+                  clients={clients} 
+                  users={users}
+                  departments={departments}
+                  currentUser={currentUser}
+                  onNavigate={(view) => setView(view)} 
+                  onViewVisit={handleViewVisit}
+                  onCheckIn={handleCheckIn}
+                />
+              )}
+              {currentView === 'CLIENTS' && (
+                <ClientManager 
+                  clients={clients} 
+                  setClients={setClients} 
+                  fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'CLIENT')}
+                  currentUser={currentUser}
+                  initialSearchTerm={globalSearchTerm}
+                  shouldCreateNew={triggerNewClient}
+                  onResetTrigger={() => { setTriggerNewClient(false); setGlobalSearchTerm(''); }}
+                />
+              )}
+              {currentView === 'VISITS' && (
+                <VisitManager 
+                  visits={visits} 
+                  setVisits={setVisits} 
+                  clients={clients} 
+                  fieldDefinitions={fieldDefinitions.filter(f => f.entityType === 'VISIT')}
+                  currentUser={currentUser}
+                  initialVisitId={selectedVisitId}
+                  onClearInitialVisit={() => setSelectedVisitId(null)}
+                  shouldCreateNew={triggerNewVisit}
+                  onResetTrigger={() => setTriggerNewVisit(false)}
+                  initialSearchTerm={globalSearchTerm} 
+                  draftVisit={draftVisit} 
+                  onClearDraft={() => setDraftVisit(null)}
+                />
+              )}
+              {currentView === 'USERS' && (
+                <UserManager 
+                  users={users} 
+                  setUsers={setUsers}
+                  roles={roles}
+                  departments={departments}
+                />
+              )}
+              {currentView === 'DEPARTMENTS' && (
+                <DepartmentManager 
+                  departments={departments} 
+                  setDepartments={setDepartments} 
+                  users={users}
+                />
+              )}
+              {currentView === 'ROLES' && (
+                <RoleManager 
+                  roles={roles} 
+                  setRoles={setRoles} 
+                />
+              )}
+              {currentView === 'ADMIN' && (
+                <AdminPanel 
+                  fieldDefinitions={fieldDefinitions}
+                  setFieldDefinitions={setFieldDefinitions}
+                  onConfigSave={refreshData}
+                />
+              )}
+            </Layout>
+            
+            <VoiceAssistant onCommand={handleVoiceCommand} />
+          </>
+      )}
     </>
   );
 };
