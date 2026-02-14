@@ -9,8 +9,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      // Manually map process.env to the loaded environment variables
-      // Use JSON.stringify to ensure proper string format. Fallback to empty string if undefined to avoid "undefined" string literal issues.
+      // Polyfill global process to prevent "process is not defined" errors in some libraries
+      'process.env': {},
+      // Manually map process.env keys to the loaded environment variables
       'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
       'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL || ''),
       'process.env.SUPABASE_KEY': JSON.stringify(env.SUPABASE_KEY || ''),

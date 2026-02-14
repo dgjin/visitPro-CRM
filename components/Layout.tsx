@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ViewState, User, Role, Notification } from '../types';
 import { hashPassword } from '../services/supabaseService';
+import { HelpDrawer } from './HelpDrawer';
 import { 
   LayoutDashboard, 
   Users, 
@@ -27,7 +28,8 @@ import {
   LogOut,
   User as UserIcon,
   Lock,
-  Moon
+  Moon,
+  HelpCircle
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -74,6 +76,7 @@ export const Layout: React.FC<LayoutProps> = ({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   
   // Profile Modal State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -283,6 +286,9 @@ export const Layout: React.FC<LayoutProps> = ({
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       
+      {/* Help Drawer */}
+      <HelpDrawer isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+
       {/* Global Toast Container */}
       <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
           {activeToasts.map(toast => (
@@ -457,6 +463,14 @@ export const Layout: React.FC<LayoutProps> = ({
                   <UserIcon className="w-5 h-5 mr-3 text-slate-400" />
                   个人设置
                </button>
+
+               <button 
+                  onClick={() => { setIsHelpOpen(true); setIsMobileMenuOpen(false); }}
+                  className="w-full text-left py-2 flex items-center text-slate-700 font-medium"
+               >
+                  <HelpCircle className="w-5 h-5 mr-3 text-slate-400" />
+                  使用帮助
+               </button>
                
                <p className="text-xs font-semibold text-slate-400 uppercase mt-4 mb-2">界面风格</p>
                <div className="flex flex-wrap gap-2">
@@ -506,7 +520,16 @@ export const Layout: React.FC<LayoutProps> = ({
                </h2>
            </div>
            
-           <div className="flex items-center space-x-4">
+           <div className="flex items-center space-x-3">
+             {/* Help Button */}
+             <button
+               onClick={() => setIsHelpOpen(true)}
+               className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-full transition-colors"
+               title="使用帮助"
+             >
+               <HelpCircle className="w-5 h-5" />
+             </button>
+
              {/* Notification Bell */}
              <div className="relative" ref={notificationRef}>
                  <button 
