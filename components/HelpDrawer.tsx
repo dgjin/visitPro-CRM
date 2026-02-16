@@ -75,7 +75,7 @@ export const HelpDrawer: React.FC<HelpDrawerProps> = ({ isOpen, onClose }) => {
 
             <HelpSection title="如何记录拜访 & 录音？" icon={Mic}>
               <ol className="list-decimal pl-5 space-y-2">
-                <li>点击 <strong>拜访记录</strong> -> <strong>新建拜访</strong>。</li>
+                <li>点击 <strong>拜访记录</strong> &rarr; <strong>新建拜访</strong>。</li>
                 <li>选择客户（支持搜索）。</li>
                 <li>
                   <strong>方式一（文字）：</strong> 直接在编辑器中输入笔记。
