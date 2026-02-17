@@ -125,7 +125,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOfflineM
                     </div>
                 ))}
             </div>
-            <span>加入数千名高效销售精英的行列</span>
+            <span>珍惜每一次沟通，用心做好每一次服务</span>
          </div>
       </div>
 
