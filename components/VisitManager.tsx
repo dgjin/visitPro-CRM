@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Visit, Client, Sentiment, CustomFieldDefinition, User, VisitRecording, AIModelType } from '../types';
-import { analyzeVisitNote, generateFollowUpEmail, transcribeAudio } from '../services/geminiService';
+import { analyzeVisitNote, generateFollowUpEmail, transcribeAudio, organizeVoiceTranscript } from '../services/geminiService';
+import MarkdownRenderer from './MarkdownRenderer';
+import CopyButton from './CopyButton';
 import { IflytekStreamingSession, downsampleBuffer, IflytekError } from '../services/iflytekService';
 import { upsertVisit, deleteVisit } from '../services/supabaseService';
 import { 
@@ -36,7 +38,15 @@ import {
   FileText,
   Upload,
   FileAudio,
-  BrainCircuit
+  BrainCircuit,
+  Plus,
+  Clock,
+  Building2,
+  ArrowLeft,
+  MoreHorizontal,
+  StickyNote,
+  BarChart3,
+  Edit3
 } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
@@ -110,7 +120,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
   // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
-  const isRecordingRef = useRef(false); // Ref to track recording state in closures
+  const isRecordingRef = useRef(false);
   const [recordingState, setRecordingState] = useState<'idle' | 'connecting' | 'recording'>('idle');
   const [currentAudioDuration, setCurrentAudioDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -133,7 +143,12 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   // AI State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isGeneratingEmail, setIsGeneratingEmail] = useState(false);
+  const [isOrganizing, setIsOrganizing] = useState(false);
+  const [autoOrganizeEnabled, setAutoOrganizeEnabled] = useState(true); // 自动整理开关
   const [selectedAiModel, setSelectedAiModel] = useState<AIModelType>('gemini');
+  
+  // Markdown Editor State
+  const [isMarkdownPreview, setIsMarkdownPreview] = useState(false);
 
   // Load default model from local storage
   useEffect(() => {
@@ -145,13 +160,9 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
   // Permission Logic
   const canEdit = (visit: Partial<Visit>) => {
-      // New visit (no ID) -> Allow
       if (!visit.id) return true;
-      // Admin -> Allow
       if (currentUser?.role === '管理员') return true;
-      // Owner -> Allow
       if (visit.ownerId && currentUser?.id === visit.ownerId) return true;
-      // Others -> Read Only
       return false;
   };
 
@@ -229,23 +240,16 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     }
   }, [currentVisit.id, currentVisit.clientName]);
 
-  // Sync content to editor div when switching visits or external updates (like voice)
+  // Sync content to editor div when switching visits or external updates
   useEffect(() => {
     const editor = editorRef.current;
     if (editor) {
         const safeContent = currentVisit.content || '';
-        
-        // Prevent cursor jumping: Only update innerHTML if the editor is NOT focused, 
-        // OR if the content is empty (initial load), 
-        // OR if the content is significantly different (e.g. Voice update or new visit loaded)
-        // AND we are not currently typing (simple check: if innerHTML matches state, do nothing)
-        
         const shouldUpdate = 
             document.activeElement !== editor || 
-            (editor.innerHTML !== safeContent && isRecording); // Allow update if recording
+            (editor.innerHTML !== safeContent && isRecording);
 
         if (shouldUpdate) {
-            // Check if content is actually different to avoid unnecessary resets
             if (editor.innerHTML !== safeContent) {
                 editor.innerHTML = safeContent;
             }
@@ -267,7 +271,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
   const startNewVisit = (overrides?: Partial<Visit>) => {
     setCurrentVisit({
-      id: '', // Empty ID indicates new
+      id: '',
       date: getLocalISOString(),
       content: '',
       type: '线下拜访',
@@ -315,7 +319,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       if (editor) {
           editor.focus();
           document.execCommand('insertHTML', false, html);
-          // Sync state
           setCurrentVisit(prev => ({...prev, content: editor.innerHTML}));
       }
       setIsTemplateOpen(false);
@@ -331,15 +334,12 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       }
       
       try {
-          // Create a blob from file
           const base64Audio = await blobToBase64(file);
           
-          // Estimate duration (optional, simplistic)
-          // For accurate duration we'd need to load into Audio element but that's async
           const newRecording: VisitRecording = {
               id: Date.now().toString(),
               url: base64Audio,
-              duration: 0, // Unknown initially
+              duration: 0,
               timestamp: new Date().toISOString()
           };
 
@@ -348,7 +348,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
               recordings: [...(prev.recordings || []), newRecording]
           }));
           
-          // Clear input
           if (fileInputRef.current) fileInputRef.current.value = '';
           
       } catch (e) {
@@ -379,11 +378,9 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
   const startRecording = async () => {
     try {
-      // Request Mic Access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      // --- 1. Audio Storage (MediaRecorder) ---
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
@@ -394,7 +391,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
         }
       };
 
-      // Handler for when saving stops
       mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const base64Audio = await blobToBase64(audioBlob);
@@ -416,8 +412,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
       mediaRecorder.start();
 
-      // --- 2. Real-time Processing (AudioContext) ---
-      // Keeping this for users who want live feedback, but the "File Transcribe" is more robust.
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioContext();
       if (audioCtx.state === 'suspended') {
@@ -428,20 +422,16 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       const source = audioCtx.createMediaStreamSource(stream);
       sourceNodeRef.current = source;
       
-      // Use buffer size 2048 for ~42ms latency @ 48kHz (closer to iFlytek's 40ms frame)
       const processor = audioCtx.createScriptProcessor(2048, 1, 1);
       scriptProcessorRef.current = processor;
 
       setRecordingState('connecting');
 
-      // --- 3. iFlytek Streaming Session ---
       const initSession = () => {
         const session = new IflytekStreamingSession(
           (text, isFinal) => {
-             // Intelligently append text
              setCurrentVisit(prev => {
                 const prevContent = prev.content || '';
-                // Simple append for now
                 return {
                     ...prev,
                     content: prevContent + text
@@ -450,13 +440,11 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
           },
           (err) => {
              console.error("Stream Error", err);
-             // Non-blocking error for live stream, user can still rely on recorded file
           },
           () => setRecordingState('recording'),
           () => {
              if (isRecordingRef.current) {
                 setRecordingState('connecting');
-                // Re-connect delay
                 setTimeout(() => {
                    if (isRecordingRef.current) {
                       iflytekSessionRef.current = initSession();
@@ -473,9 +461,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
       processor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0); 
-        // Clone to ensure we don't hold reference to buffer that might be recycled
         const dataClone = new Float32Array(inputData);
-        // Convert Float32 audio to Int16 PCM
         const pcmData = downsampleBuffer(dataClone, audioCtx.sampleRate);
         
         if (iflytekSessionRef.current) {
@@ -486,7 +472,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       source.connect(processor);
       processor.connect(audioCtx.destination); 
 
-      // Update State
       isRecordingRef.current = true;
       setIsRecording(true);
       timerRef.current = setInterval(() => {
@@ -502,15 +487,13 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     }
   };
 
-  const stopRecordingResources = () => {
+  const stopRecordingResources = async () => {
     isRecordingRef.current = false;
 
-    // 1. Stop Saving File
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
 
-    // 2. Stop Audio Context & Processor
     if (scriptProcessorRef.current) {
         scriptProcessorRef.current.disconnect();
         scriptProcessorRef.current = null;
@@ -524,25 +507,33 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
         audioContextRef.current = null;
     }
 
-    // 3. Stop Stream Tracks
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
     
-    // 4. Stop iFlytek Session
     if (iflytekSessionRef.current) {
         iflytekSessionRef.current.stop();
         iflytekSessionRef.current = null;
     }
 
-    // 5. Cleanup UI
     if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
     }
     setIsRecording(false);
     setRecordingState('idle');
+    
+    // Auto-organize voice transcript after recording stops
+    if (autoOrganizeEnabled && !isReadOnly) {
+      // Wait a moment for the final transcription to be inserted
+      setTimeout(async () => {
+        const currentContent = editorRef.current?.innerText || currentVisit.content || '';
+        if (currentContent && currentContent.length > 50) { // Only organize if there's substantial content
+          await handleOrganizeVoiceTranscript();
+        }
+      }, 1000);
+    }
   };
 
   const handleVoiceToggle = () => {
@@ -556,7 +547,6 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
   const handleDeleteRecording = (index: number) => {
       if(isReadOnly) return;
-      // Confirm deletion
       if(!window.confirm("确定要删除这条录音吗？此操作将永久移除该音频文件。")) return;
       
       setCurrentVisit(prev => {
@@ -696,10 +686,44 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     try {
       const result = await analyzeVisitNote(rawText, currentVisit.clientName || "Unknown", selectedAiModel);
       setCurrentVisit(prev => ({ ...prev, ...result }));
-    } catch (e) {
-      alert("AI 分析失败。");
+    } catch (e: any) {
+      alert(e.message || "AI 分析失败，请检查AI配置和网络连接。");
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const handleOrganizeVoiceTranscript = async () => {
+    if(isReadOnly) return;
+    const rawText = editorRef.current?.innerText || currentVisit.content || '';
+    if (!rawText) {
+      alert("请先输入或录制拜访笔记内容。");
+      return;
+    }
+    
+    setIsOrganizing(true);
+    try {
+      const result = await organizeVoiceTranscript(rawText, currentVisit.clientName || "Unknown", selectedAiModel);
+      
+      // Update the visit with organized content
+      setCurrentVisit(prev => ({ 
+        ...prev, 
+        content: result.organizedContent,
+        summary: result.summary,
+        sentiment: result.sentiment as Sentiment,
+        actionItems: result.actionItems
+      }));
+      
+      // Update editor content
+      if (editorRef.current) {
+        editorRef.current.innerHTML = result.organizedContent.replace(/\n/g, '<br>');
+      }
+      
+      alert("语音内容整理完成！已自动更新拜访记录。");
+    } catch (e: any) {
+      alert(e.message || "语音内容整理失败，请检查AI配置和网络连接。");
+    } finally {
+      setIsOrganizing(false);
     }
   };
 
@@ -713,8 +737,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     try {
       const email = await generateFollowUpEmail(currentVisit as Visit, 'Formal', selectedAiModel);
       setCurrentVisit(prev => ({ ...prev, followUpDraft: email }));
-    } catch (e) {
-      alert("邮件生成失败。");
+    } catch (e: any) {
+      alert(e.message || "邮件生成失败，请检查AI配置和网络连接。");
     } finally {
       setIsGeneratingEmail(false);
     }
@@ -774,217 +798,472 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case '线上会议': return <Video className="w-4 h-4 text-blue-500" />;
-      case '电话沟通': return <Phone className="w-4 h-4 text-emerald-500" />;
-      case '客户到访': return <BuildingIcon className="w-4 h-4 text-amber-500" />;
-      default: return <UserIcon className="w-4 h-4 text-indigo-500" />;
+      case '线上会议': return <Video className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />;
+      case '电话沟通': return <Phone className="w-4 h-4" style={{ color: 'var(--success)' }} />;
+      case '客户到访': return <BuildingIcon className="w-4 h-4" style={{ color: 'var(--warning)' }} />;
+      default: return <UserIcon className="w-4 h-4" style={{ color: 'var(--info)' }} />;
+    }
+  };
+
+  const getTypeBadgeStyle = (type: string) => {
+    switch (type) {
+      case '线上会议': return { background: 'var(--primary-50)', color: 'var(--primary-700)' };
+      case '电话沟通': return { background: 'var(--success-light)', color: '#065f46' };
+      case '客户到访': return { background: 'var(--warning-light)', color: '#92400e' };
+      default: return { background: 'var(--info-light)', color: '#5b21b6' };
+    }
+  };
+
+  const getSentimentDotClass = (sentiment?: Sentiment) => {
+    switch (sentiment) {
+      case Sentiment.Positive: return 'status-dot-success';
+      case Sentiment.Negative: return 'status-dot-danger';
+      default: return 'status-dot';
     }
   };
 
   // LIST VIEW
   if (viewMode === 'LIST') {
     return (
-      <div className="h-full flex flex-col">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-slate-800">拜访历史</h2>
+      <div className="h-full flex flex-col animate-fade-in-up">
+        {/* Header */}
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginBottom: '24px',
+          paddingBottom: '16px',
+          borderBottom: '1px solid var(--border)'
+        }}>
+          <div>
+            <h2 style={{ 
+              fontSize: '24px', 
+              fontWeight: 700, 
+              color: 'var(--text-primary)',
+              marginBottom: '4px'
+            }}>拜访历史</h2>
+            <p style={{ fontSize: '14px', color: 'var(--text-tertiary)' }}>
+              共 {filteredVisits.length} 条拜访记录
+            </p>
+          </div>
           <button 
             onClick={() => startNewVisit()}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl flex items-center font-medium shadow-sm"
+            className="btn btn-primary"
           >
-            <Calendar className="w-5 h-5 mr-2" />
+            <Plus className="w-4 h-4" />
             新建拜访
           </button>
         </div>
 
-        <div className="bg-white p-4 rounded-xl border border-slate-100 mb-4 grid grid-cols-1 md:grid-cols-4 gap-4">
-             {/* Search */}
-             <div className="relative">
-                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                 <input 
-                     type="text"
-                     placeholder="搜索客户、内容、人员、地点..."
-                     className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-slate-900"
-                     value={listSearchTerm}
-                     onChange={e => { setListSearchTerm(e.target.value); setCurrentPage(1); }}
-                 />
-             </div>
-             
-             {/* Type Filter */}
-             <div className="relative">
-                 <select
-                     className="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none bg-white text-slate-900"
-                     value={filterType}
-                     onChange={e => { setFilterType(e.target.value); setCurrentPage(1); }}
-                 >
-                     <option value="ALL">所有类型</option>
-                     <option value="线下拜访">线下拜访</option>
-                     <option value="线上会议">线上会议</option>
-                     <option value="电话沟通">电话沟通</option>
-                     <option value="客户到访">客户到访</option>
-                 </select>
-                 <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
-             </div>
+        {/* Compact Filter Section */}
+        <div style={{ 
+          background: 'var(--bg-primary)', 
+          padding: '16px 20px', 
+          borderRadius: 'var(--radius-md)', 
+          border: '1px solid var(--border-light)',
+          boxShadow: 'var(--shadow-sm)',
+          marginBottom: '20px'
+        }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Search */}
+            <div style={{ position: 'relative', flex: '1', minWidth: '200px' }}>
+              <Search style={{ 
+                position: 'absolute', 
+                left: '12px', 
+                top: '50%', 
+                transform: 'translateY(-50%)', 
+                color: 'var(--text-tertiary)', 
+                width: '16px', 
+                height: '16px' 
+              }} />
+              <input 
+                type="text"
+                placeholder="搜索客户、内容、人员..."
+                className="input"
+                style={{ paddingLeft: '40px' }}
+                value={listSearchTerm}
+                onChange={e => { setListSearchTerm(e.target.value); setCurrentPage(1); }}
+              />
+            </div>
+            
+            {/* Type Filter */}
+            <div style={{ position: 'relative' }}>
+              <Filter style={{ 
+                position: 'absolute', 
+                left: '12px', 
+                top: '50%', 
+                transform: 'translateY(-50%)', 
+                color: 'var(--text-tertiary)', 
+                width: '16px', 
+                height: '16px',
+                pointerEvents: 'none'
+              }} />
+              <select
+                style={{ 
+                  padding: '10px 14px 10px 40px', 
+                  fontSize: '14px', 
+                  border: '1px solid var(--border)', 
+                  borderRadius: 'var(--radius)', 
+                  background: 'var(--bg-primary)', 
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  outline: 'none',
+                  minWidth: '140px'
+                }}
+                value={filterType}
+                onChange={e => { setFilterType(e.target.value); setCurrentPage(1); }}
+              >
+                <option value="ALL">所有类型</option>
+                <option value="线下拜访">线下拜访</option>
+                <option value="线上会议">线上会议</option>
+                <option value="电话沟通">电话沟通</option>
+                <option value="客户到访">客户到访</option>
+              </select>
+            </div>
 
-             {/* Date Range */}
-             <div className="md:col-span-2 flex items-center space-x-2">
-                 <input 
-                     type="date"
-                     className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-slate-900"
-                     value={startDate}
-                     onChange={e => { setStartDate(e.target.value); setCurrentPage(1); }}
-                     title="开始日期"
-                 />
-                 <span className="text-slate-400">-</span>
-                 <input 
-                     type="date"
-                     className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white text-slate-900"
-                     value={endDate}
-                     onChange={e => { setEndDate(e.target.value); setCurrentPage(1); }}
-                     title="结束日期"
-                 />
-                 {(startDate || endDate || listSearchTerm || filterType !== 'ALL') && (
-                     <button 
-                        onClick={() => {
-                            setStartDate('');
-                            setEndDate('');
-                            setListSearchTerm('');
-                            setFilterType('ALL');
-                            setCurrentPage(1);
-                        }}
-                        className="p-2 text-slate-400 hover:text-red-500 transition-colors"
-                        title="重置筛选"
-                     >
-                        <XCircle className="w-5 h-5" />
-                     </button>
-                 )}
-             </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col">
-          <div className="flex-1 overflow-y-auto">
-            {paginatedVisits.map((visit, index) => {
-              const canEditVisit = canEdit(visit);
-              const dateObj = new Date(visit.date);
-              const day = dateObj.getDate();
-              const month = dateObj.getMonth() + 1;
-              const time = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-              return (
-                <div 
-                  key={visit.id}
-                  onClick={() => {
-                    const d = new Date(visit.date);
-                    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-                    const formattedDate = d.toISOString().slice(0, 16);
-                    
-                    let recs = visit.recordings || [];
-                    if (recs.length === 0 && visit.recordingData) {
-                        recs = [{ id: 'legacy', url: visit.recordingData, timestamp: visit.date }];
-                    }
-
-                    setCurrentVisit({ ...visit, date: formattedDate, recordings: recs });
-                    setViewMode('EDITOR');
-                  }}
-                  className={`flex items-start p-4 hover:bg-slate-50 transition-colors cursor-pointer group border-b border-slate-50 last:border-0`}
-                >
-                   {/* Left: Time & Type */}
-                   <div className="w-24 flex-shrink-0 flex flex-col items-center justify-center mr-4 border-r border-slate-100 pr-4">
-                      <div className="text-xl font-bold text-slate-700 leading-none">{month}/{day}</div>
-                      <div className="text-xs text-slate-400 mt-1 mb-2">{time}</div>
-                      <div className="p-1.5 bg-slate-100 rounded-lg" title={visit.type}>
-                        {getTypeIcon(visit.type)}
-                      </div>
-                   </div>
-
-                   {/* Middle: Content */}
-                   <div className="flex-1 min-w-0 mr-4">
-                      <div className="flex items-center mb-1">
-                         <h3 className="font-bold text-slate-800 text-base truncate">{visit.clientName}</h3>
-                         {visit.sentiment && (
-                            <div className={`ml-2 h-2 w-2 rounded-full ${
-                                visit.sentiment === Sentiment.Positive ? 'bg-emerald-500' :
-                                visit.sentiment === Sentiment.Negative ? 'bg-red-500' : 'bg-slate-300'
-                            }`} title={`情感倾向: ${visit.sentiment}`}></div>
-                         )}
-                      </div>
-                      <p className="text-sm text-slate-600 line-clamp-2 leading-relaxed">
-                         {visit.summary || visit.content?.replace(/<[^>]+>/g, '') || <span className="text-slate-300 italic">无内容</span>}
-                      </p>
-                      
-                      <div className="flex items-center gap-3 mt-2">
-                         {(visit.recordings?.length ?? 0) > 0 && (
-                            <span className="flex items-center text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                               <Volume2 className="w-3 h-3 mr-1" /> {visit.recordings?.length}
-                            </span>
-                         )}
-                         {visit.actionItems && visit.actionItems.length > 0 && (
-                            <span className="flex items-center text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
-                               <CheckSquare className="w-3 h-3 mr-1" /> {visit.actionItems.length} 待办
-                            </span>
-                         )}
-                      </div>
-                   </div>
-
-                   {/* Right: Meta & Actions */}
-                   <div className="w-32 flex-shrink-0 flex flex-col items-end justify-between self-stretch pl-4 border-l border-slate-50">
-                      <div className="flex items-center text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-full">
-                         <UserIcon className="w-3 h-3 mr-1" />
-                         <span className="truncate max-w-[80px]">{visit.ownerName || 'Unknown'}</span>
-                      </div>
-                      
-                      {canEditVisit ? (
-                         <button
-                           onClick={(e) => handleDeleteVisit(visit.id, e)}
-                           className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
-                           title="删除记录"
-                         >
-                           <Trash2 className="w-4 h-4" />
-                         </button>
-                      ) : (
-                         <span className="opacity-0 group-hover:opacity-100 text-xs text-slate-300 flex items-center mt-2">
-                            <Eye className="w-3 h-3 mr-1"/> 只读
-                         </span>
-                      )}
-                   </div>
-                </div>
-              );
-            })}
-            {filteredVisits.length === 0 && (
-              <div className="text-center py-20 text-slate-400">
-                <Calendar className="w-16 h-16 mx-auto mb-4 opacity-10" />
-                <p>暂无符合条件的拜访记录</p>
-              </div>
+            {/* Date Range */}
+            <input 
+              type="date"
+              className="input"
+              style={{ width: 'auto', minWidth: '140px' }}
+              value={startDate}
+              onChange={e => { setStartDate(e.target.value); setCurrentPage(1); }}
+              title="开始日期"
+            />
+            <span style={{ color: 'var(--text-tertiary)' }}>至</span>
+            <input 
+              type="date"
+              className="input"
+              style={{ width: 'auto', minWidth: '140px' }}
+              value={endDate}
+              onChange={e => { setEndDate(e.target.value); setCurrentPage(1); }}
+              title="结束日期"
+            />
+            
+            {(startDate || endDate || listSearchTerm || filterType !== 'ALL') && (
+              <button 
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                  setListSearchTerm('');
+                  setFilterType('ALL');
+                  setCurrentPage(1);
+                }}
+                style={{ 
+                  padding: '10px', 
+                  color: 'var(--text-tertiary)', 
+                  borderRadius: 'var(--radius)',
+                  transition: 'all var(--transition-fast)'
+                }}
+                className="btn-ghost"
+                title="重置筛选"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
             )}
           </div>
+        </div>
 
-          {/* Pagination */}
-          {filteredVisits.length > 0 && (
-            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
-               <span className="text-xs text-slate-500">
-                  显示 {Math.min(filteredVisits.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)} - {Math.min(filteredVisits.length, currentPage * ITEMS_PER_PAGE)} 共 {filteredVisits.length} 条
-               </span>
-               <div className="flex space-x-2">
-                  <button 
-                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                     disabled={currentPage === 1}
-                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        {/* Card-based List */}
+        <div style={{ 
+          flex: 1, 
+          overflowY: 'auto',
+          padding: '4px'
+        }}>
+          {paginatedVisits.length === 0 ? (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '80px 20px', 
+              color: 'var(--text-tertiary)',
+              background: 'var(--bg-primary)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px dashed var(--border)'
+            }}>
+              <Calendar style={{ width: '64px', height: '64px', margin: '0 auto 16px', opacity: 0.3 }} />
+              <p style={{ fontSize: '16px', marginBottom: '8px' }}>暂无符合条件的拜访记录</p>
+              <p style={{ fontSize: '14px' }}>点击右上角按钮创建新拜访</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {paginatedVisits.map((visit) => {
+                const canEditVisit = canEdit(visit);
+                const dateObj = new Date(visit.date);
+                const day = dateObj.getDate();
+                const month = dateObj.getMonth() + 1;
+                const time = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const badgeStyle = getTypeBadgeStyle(visit.type);
+
+                return (
+                  <div 
+                    key={visit.id}
+                    onClick={() => {
+                      const d = new Date(visit.date);
+                      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+                      const formattedDate = d.toISOString().slice(0, 16);
+                      
+                      let recs = visit.recordings || [];
+                      if (recs.length === 0 && visit.recordingData) {
+                          recs = [{ id: 'legacy', url: visit.recordingData, timestamp: visit.date }];
+                      }
+
+                      setCurrentVisit({ ...visit, date: formattedDate, recordings: recs });
+                      setViewMode('EDITOR');
+                    }}
+                    style={{ 
+                      background: 'var(--bg-primary)', 
+                      borderRadius: 'var(--radius-md)', 
+                      border: '1px solid var(--border-light)',
+                      boxShadow: 'var(--shadow-sm)',
+                      padding: '20px',
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)',
+                      display: 'flex',
+                      gap: '16px',
+                      alignItems: 'flex-start'
+                    }}
+                    className="card-interactive"
                   >
-                     <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs flex items-center px-2 font-medium text-slate-600">
-                     {currentPage} / {totalPages}
-                  </span>
-                  <button 
-                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                     disabled={currentPage === totalPages}
-                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                     <ChevronRight className="w-4 h-4" />
-                  </button>
-               </div>
+                    {/* Date Column */}
+                    <div style={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      minWidth: '60px',
+                      padding: '8px 12px',
+                      background: 'var(--bg-tertiary)',
+                      borderRadius: 'var(--radius)'
+                    }}>
+                      <span style={{ fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' }}>{day}</span>
+                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{month}月</span>
+                      <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{time}</span>
+                    </div>
+
+                    {/* Content Column */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {/* Header Row */}
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '12px', 
+                        marginBottom: '8px',
+                        flexWrap: 'wrap'
+                      }}>
+                        <h3 style={{ 
+                          fontSize: '16px', 
+                          fontWeight: 600, 
+                          color: 'var(--text-primary)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}>
+                          <Building2 className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+                          {visit.clientName}
+                        </h3>
+                        
+                        <span style={{ 
+                          display: 'inline-flex', 
+                          alignItems: 'center', 
+                          gap: '4px',
+                          padding: '4px 10px', 
+                          fontSize: '12px', 
+                          fontWeight: 500, 
+                          borderRadius: 'var(--radius-full)',
+                          ...badgeStyle
+                        }}>
+                          {getTypeIcon(visit.type)}
+                          {visit.type}
+                        </span>
+                        
+                        {visit.sentiment && (
+                          <span 
+                            className={getSentimentDotClass(visit.sentiment)}
+                            title={`情感倾向: ${visit.sentiment}`}
+                            style={{ 
+                              background: visit.sentiment === Sentiment.Positive ? 'var(--success)' : 
+                                         visit.sentiment === Sentiment.Negative ? 'var(--danger)' : 'var(--text-tertiary)'
+                            }}
+                          />
+                        )}
+                      </div>
+
+                      {/* Summary */}
+                      <p style={{ 
+                        fontSize: '14px', 
+                        color: 'var(--text-secondary)', 
+                        lineHeight: 1.6,
+                        marginBottom: '12px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical'
+                      }}>
+                        {visit.summary || visit.content?.replace(/<[^>]+>/g, '') || 
+                          <span style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>暂无内容</span>
+                        }
+                      </p>
+
+                      {/* Footer Row */}
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '16px',
+                        flexWrap: 'wrap'
+                      }}>
+                        {/* Owner */}
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '6px',
+                          fontSize: '13px',
+                          color: 'var(--text-tertiary)'
+                        }}>
+                          <UserIcon className="w-3.5 h-3.5" />
+                          {visit.ownerName || 'Unknown'}
+                        </div>
+
+                        {/* Recordings */}
+                        {(visit.recordings?.length ?? 0) > 0 && (
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '6px',
+                            fontSize: '13px',
+                            color: 'var(--primary-600)',
+                            background: 'var(--primary-50)',
+                            padding: '4px 10px',
+                            borderRadius: 'var(--radius-full)'
+                          }}>
+                            <Volume2 className="w-3.5 h-3.5" />
+                            {visit.recordings?.length} 录音
+                          </div>
+                        )}
+
+                        {/* Action Items */}
+                        {visit.actionItems && visit.actionItems.length > 0 && (
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '6px',
+                            fontSize: '13px',
+                            color: '#92400e',
+                            background: 'var(--warning-light)',
+                            padding: '4px 10px',
+                            borderRadius: 'var(--radius-full)'
+                          }}>
+                            <CheckSquare className="w-3.5 h-3.5" />
+                            {visit.actionItems.length} 待办
+                          </div>
+                        )}
+
+                        {/* Read-only indicator */}
+                        {!canEditVisit && (
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '6px',
+                            fontSize: '13px',
+                            color: 'var(--text-tertiary)',
+                            marginLeft: 'auto'
+                          }}>
+                            <Eye className="w-3.5 h-3.5" />
+                            只读
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    {canEditVisit && (
+                      <button
+                        onClick={(e) => handleDeleteVisit(visit.id, e)}
+                        style={{ 
+                          padding: '8px', 
+                          color: 'var(--text-tertiary)', 
+                          borderRadius: 'var(--radius)',
+                          opacity: 0,
+                          transition: 'all var(--transition-fast)'
+                        }}
+                        className="btn-danger"
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.opacity = '1';
+                          e.currentTarget.style.background = 'var(--danger-light)';
+                          e.currentTarget.style.color = 'var(--danger)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.opacity = '0';
+                        }}
+                        title="删除记录"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
-       </div>
+        </div>
+
+        {/* Pagination */}
+        {filteredVisits.length > 0 && (
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            padding: '16px 0',
+            marginTop: '8px',
+            borderTop: '1px solid var(--border-light)'
+          }}>
+            <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
+              显示 {Math.min(filteredVisits.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)} - {Math.min(filteredVisits.length, currentPage * ITEMS_PER_PAGE)} 共 {filteredVisits.length} 条
+            </span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                style={{ 
+                  padding: '8px', 
+                  borderRadius: 'var(--radius)', 
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-primary)',
+                  color: 'var(--text-secondary)',
+                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                  opacity: currentPage === 1 ? 0.5 : 1,
+                  transition: 'all var(--transition-fast)'
+                }}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span style={{ 
+                fontSize: '14px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                padding: '0 12px',
+                fontWeight: 500,
+                color: 'var(--text-primary)'
+              }}>
+                {currentPage} / {totalPages}
+              </span>
+              <button 
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                style={{ 
+                  padding: '8px', 
+                  borderRadius: 'var(--radius)', 
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-primary)',
+                  color: 'var(--text-secondary)',
+                  cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                  opacity: currentPage === totalPages ? 0.5 : 1,
+                  transition: 'all var(--transition-fast)'
+                }}
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -993,575 +1272,1288 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   return (
     <div className="h-full flex flex-col animate-fade-in-up">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-4">
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between', 
+        marginBottom: '20px',
+        paddingBottom: '16px',
+        borderBottom: '1px solid var(--border)'
+      }}>
         <button 
           onClick={() => { stopRecordingResources(); setViewMode('LIST'); }}
-          className="text-slate-500 hover:text-indigo-600 flex items-center text-sm font-medium"
+          className="btn btn-ghost"
         >
-          <ChevronRight className="w-4 h-4 mr-1 rotate-180" /> 返回
+          <ArrowLeft className="w-4 h-4" />
+          返回列表
         </button>
-        <div className="flex gap-2">
+        
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           {isReadOnly && (
-              <span className="text-slate-400 text-xs flex items-center bg-slate-100 px-3 py-1 rounded-full mr-2">
-                  <Eye className="w-3 h-3 mr-1" /> 您仅有查看权限
-              </span>
+            <span className="badge badge-info">
+              <Eye className="w-3 h-3" />
+              只读模式
+            </span>
           )}
+          
           {currentVisit.id && visits.find(v => v.id === currentVisit.id) && !isReadOnly && (
             <button 
-               onClick={() => currentVisit.id && handleDeleteVisit(currentVisit.id)}
-               className="text-red-500 hover:bg-red-50 px-3 py-2 rounded-lg flex items-center text-sm font-medium transition-colors"
-               title="删除记录"
+              onClick={() => currentVisit.id && handleDeleteVisit(currentVisit.id)}
+              className="btn btn-danger"
             >
-               <Trash2 className="w-4 h-4 mr-1" /> 删除
+              <Trash2 className="w-4 h-4" />
+              删除
             </button>
           )}
+          
           {!isReadOnly && (
-              <button 
-                onClick={handleSave}
-                disabled={isSaving}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center text-sm font-medium disabled:opacity-70"
-              >
-                {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
-                {isSaving ? '保存中...' : '保存记录'}
-              </button>
+            <button 
+              onClick={handleSave}
+              disabled={isSaving}
+              className="btn btn-primary"
+              style={{ opacity: isSaving ? 0.7 : 1 }}
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {isSaving ? '保存中...' : '保存记录'}
+            </button>
           )}
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-hidden">
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: expandedSection === 'notes' ? '1fr 0px' : 
+                            expandedSection === 'ai' ? '0px 1fr' : 
+                            'repeat(auto-fit, minmax(400px, 1fr))',
+        gap: expandedSection ? '0px' : '24px',
+        flex: 1,
+        overflow: 'hidden',
+        transition: 'all var(--transition-slow)'
+      }}>
         
         {/* LEFT COLUMN: Input & Record */}
-        <div className="flex flex-col h-full overflow-y-auto pr-2">
+        <div style={{ 
+          display: expandedSection === 'ai' ? 'none' : 'flex',
+          flexDirection: 'column', 
+          height: '100%', 
+          overflowY: 'auto',
+          paddingRight: expandedSection === 'notes' ? '0px' : '8px',
+          opacity: expandedSection === 'ai' ? 0 : 1,
+          transition: 'opacity var(--transition)'
+        }}>
           
-          {/* 1. Meta Fields */}
-          <div className="space-y-4 mb-4">
-             {/* Client Selection */}
-             <div className="relative" ref={clientDropdownRef}>
-                 <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">客户</label>
-                 <div className="relative">
-                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                   <input 
-                     type="text"
-                     className="w-full pl-9 pr-8 p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none disabled:bg-slate-50 disabled:text-slate-500"
-                     placeholder="搜索选择客户..."
-                     value={clientSearchTerm}
-                     onFocus={() => !isReadOnly && setIsClientDropdownOpen(true)}
-                     onChange={(e) => {
-                       setClientSearchTerm(e.target.value);
-                       setIsClientDropdownOpen(true);
-                       if (currentVisit.clientId && e.target.value !== currentVisit.clientName) {
-                         setCurrentVisit(prev => ({ ...prev, clientId: undefined }));
-                       }
-                     }}
-                     disabled={isReadOnly}
-                   />
-                   {isClientDropdownOpen && !isReadOnly && (
-                     <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-100 rounded-lg shadow-xl z-20 max-h-60 overflow-y-auto">
-                        {filteredClients.length > 0 ? (
-                          filteredClients.map(client => (
-                            <div 
-                              key={client.id}
-                              className="px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-50 last:border-0"
-                              onClick={() => {
-                                setCurrentVisit(prev => ({ ...prev, clientId: client.id, clientName: client.name }));
-                                setClientSearchTerm(client.name);
-                                setIsClientDropdownOpen(false);
-                              }}
-                            >
-                              <div className="font-medium text-slate-800 text-sm">{client.name}</div>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="p-4 text-center text-slate-400 text-xs">未找到相关客户</div>
-                        )}
-                     </div>
-                   )}
-                 </div>
-             </div>
-
-             {/* Type & Date */}
-             <div className="grid grid-cols-2 gap-4">
-                <div>
-                   <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">方式</label>
-                   <select 
-                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm disabled:bg-slate-50 disabled:text-slate-500"
-                     value={currentVisit.type}
-                     onChange={(e: any) => setCurrentVisit(prev => ({ ...prev, type: e.target.value }))}
-                     disabled={isReadOnly}
-                   >
-                     <option>线下拜访</option>
-                     <option>线上会议</option>
-                     <option>电话沟通</option>
-                     <option>客户到访</option>
-                   </select>
-                </div>
-                <div>
-                   <div className="flex justify-between items-center mb-1">
-                      <label className="block text-xs font-semibold text-slate-500 uppercase">拜访时间</label>
-                      {!isReadOnly && (
-                          <button 
-                            onClick={() => setCurrentVisit(prev => ({ ...prev, date: getLocalISOString() }))}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center font-medium"
-                            title="设置为当前时间"
+          {/* Section 1: Basic Info Card */}
+          <div style={{ 
+            background: 'var(--bg-primary)', 
+            borderRadius: 'var(--radius-md)', 
+            border: '1px solid var(--border-light)',
+            boxShadow: 'var(--shadow-sm)',
+            padding: '20px',
+            marginBottom: '16px'
+          }}>
+            <h3 style={{ 
+              fontSize: '14px', 
+              fontWeight: 600, 
+              color: 'var(--text-primary)',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <UserIcon className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+              基本信息
+            </h3>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Client Selection */}
+              <div ref={clientDropdownRef}>
+                <label style={{ 
+                  display: 'block', 
+                  fontSize: '12px', 
+                  fontWeight: 600, 
+                  color: 'var(--text-secondary)', 
+                  textTransform: 'uppercase',
+                  marginBottom: '6px'
+                }}>客户 *</label>
+                <div style={{ position: 'relative' }}>
+                  <Search style={{ 
+                    position: 'absolute', 
+                    left: '12px', 
+                    top: '50%', 
+                    transform: 'translateY(-50%)', 
+                    color: 'var(--text-tertiary)', 
+                    width: '16px', 
+                    height: '16px' 
+                  }} />
+                  <input 
+                    type="text"
+                    className="input"
+                    style={{ paddingLeft: '40px' }}
+                    placeholder="搜索选择客户..."
+                    value={clientSearchTerm}
+                    onFocus={() => !isReadOnly && setIsClientDropdownOpen(true)}
+                    onChange={(e) => {
+                      setClientSearchTerm(e.target.value);
+                      setIsClientDropdownOpen(true);
+                      if (currentVisit.clientId && e.target.value !== currentVisit.clientName) {
+                        setCurrentVisit(prev => ({ ...prev, clientId: undefined }));
+                      }
+                    }}
+                    disabled={isReadOnly}
+                  />
+                  {isClientDropdownOpen && !isReadOnly && (
+                    <div style={{ 
+                      position: 'absolute', 
+                      top: 'calc(100% + 4px)', 
+                      left: 0, 
+                      right: 0, 
+                      background: 'var(--bg-primary)', 
+                      border: '1px solid var(--border-light)', 
+                      borderRadius: 'var(--radius)', 
+                      boxShadow: 'var(--shadow-lg)', 
+                      zIndex: 20, 
+                      maxHeight: '240px', 
+                      overflowY: 'auto'
+                    }}>
+                      {filteredClients.length > 0 ? (
+                        filteredClients.map(client => (
+                          <div 
+                            key={client.id}
+                            style={{ 
+                              padding: '12px 16px', 
+                              cursor: 'pointer',
+                              borderBottom: '1px solid var(--border-light)',
+                              transition: 'background var(--transition-fast)'
+                            }}
+                            className="hover:bg-slate-50"
+                            onClick={() => {
+                              setCurrentVisit(prev => ({ ...prev, clientId: client.id, clientName: client.name }));
+                              setClientSearchTerm(client.name);
+                              setIsClientDropdownOpen(false);
+                            }}
                           >
-                             <RefreshCw className="w-3 h-3 mr-1" />
-                             当前时间
-                          </button>
-                      )}
-                   </div>
-                   <input 
-                     type="datetime-local"
-                     className="w-full p-2.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm disabled:bg-slate-50 disabled:text-slate-500"
-                     value={currentVisit.date || ''}
-                     onChange={(e) => setCurrentVisit(prev => ({ ...prev, date: e.target.value }))}
-                     disabled={isReadOnly}
-                   />
-                </div>
-             </div>
-             
-             {/* Participants & Location (Added Section) */}
-             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-3">
-                 {/* Location */}
-                 <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">拜访地点</label>
-                    <div className="relative">
-                       <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-                       <input 
-                          className="w-full pl-9 pr-3 p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
-                          placeholder="输入地址或会议室..."
-                          value={currentVisit.location || ''}
-                          onChange={(e) => setCurrentVisit(prev => ({ ...prev, location: e.target.value }))}
-                          disabled={isReadOnly}
-                       />
-                    </div>
-                 </div>
-
-                 {/* Contact Person (New) */}
-                 <div className="grid grid-cols-2 gap-3">
-                    <div>
-                       <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">拜访对象</label>
-                       <input 
-                           className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
-                           value={currentVisit.clientContact || ''}
-                           placeholder="姓名"
-                           onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientContact: e.target.value }))}
-                           disabled={isReadOnly}
-                       />
-                    </div>
-                    <div>
-                       <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">职位</label>
-                       <input 
-                           className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
-                           value={currentVisit.clientContactRole || ''}
-                           placeholder="职位"
-                           onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientContactRole: e.target.value }))}
-                           disabled={isReadOnly}
-                       />
-                    </div>
-                 </div>
-
-                 {/* Participants */}
-                 <div className="grid grid-cols-2 gap-3">
-                      <div>
-                         <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">其他客户参与人</label>
-                         <input 
-                             className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
-                             value={currentVisit.clientParticipants || ''}
-                             placeholder="姓名, 职位..."
-                             onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientParticipants: e.target.value }))}
-                             disabled={isReadOnly}
-                         />
-                      </div>
-                      <div>
-                         <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">我方参与人</label>
-                         <input 
-                             className="w-full p-2 rounded-lg border border-slate-200 text-slate-900 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white disabled:bg-slate-50 disabled:text-slate-500"
-                             value={currentVisit.ourParticipants || ''}
-                             placeholder="同事姓名..."
-                             onChange={(e) => setCurrentVisit(prev => ({ ...prev, ourParticipants: e.target.value }))}
-                             disabled={isReadOnly}
-                         />
-                      </div>
-                 </div>
-                 
-                  {/* Owner */}
-                 <div>
-                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">负责人 (录入人)</label>
-                    <div className="flex items-center p-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm">
-                        <UserIcon className="w-4 h-4 mr-2 text-slate-400" />
-                        {currentVisit.ownerName || currentUser.name}
-                    </div>
-                 </div>
-             </div>
-
-             {/* Custom Fields - Optimized for Type Safety */}
-             {fieldDefinitions.length > 0 && (
-                <div className="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                  {fieldDefinitions.map(field => (
-                    <div key={field.id}>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">{field.label}</label>
-                      {field.type === 'select' ? (
-                         <select
-                            className="w-full p-2 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm disabled:bg-slate-50 disabled:text-slate-500"
-                            value={currentVisit.customFields?.[field.key] || ''}
-                            onChange={(e) => {
-                                setCurrentVisit(prev => ({
-                                  ...prev,
-                                  customFields: { ...prev.customFields, [field.key]: e.target.value }
-                                }));
-                            }}
-                            disabled={isReadOnly}
-                         >
-                            <option value="">请选择</option>
-                            {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                         </select>
+                            <div style={{ fontWeight: 500, fontSize: '14px', color: 'var(--text-primary)' }}>{client.name}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '2px' }}>{client.industry}</div>
+                          </div>
+                        ))
                       ) : (
-                          <input 
-                            type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-                            className="w-full p-2 rounded-lg border border-slate-200 bg-white text-slate-900 text-sm disabled:bg-slate-50 disabled:text-slate-500"
-                            value={currentVisit.customFields?.[field.key] || ''}
-                            onChange={(e) => {
-                                let val: any = e.target.value;
-                                // Optimize: Cast number types to actual numbers
-                                if (field.type === 'number') {
-                                    val = val === '' ? null : Number(val);
-                                }
-                                setCurrentVisit(prev => ({
-                                  ...prev,
-                                  customFields: { ...prev.customFields, [field.key]: val }
-                                }));
-                            }}
-                            disabled={isReadOnly}
-                          />
+                        <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                          未找到相关客户
+                        </div>
                       )}
                     </div>
-                  ))}
+                  )}
                 </div>
-             )}
+              </div>
+
+              {/* Type & Date Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '12px', 
+                    fontWeight: 600, 
+                    color: 'var(--text-secondary)', 
+                    textTransform: 'uppercase',
+                    marginBottom: '6px'
+                  }}>拜访方式</label>
+                  <select 
+                    className="input"
+                    value={currentVisit.type}
+                    onChange={(e: any) => setCurrentVisit(prev => ({ ...prev, type: e.target.value }))}
+                    disabled={isReadOnly}
+                  >
+                    <option>线下拜访</option>
+                    <option>线上会议</option>
+                    <option>电话沟通</option>
+                    <option>客户到访</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ 
+                      fontSize: '12px', 
+                      fontWeight: 600, 
+                      color: 'var(--text-secondary)', 
+                      textTransform: 'uppercase'
+                    }}>拜访时间</label>
+                    {!isReadOnly && (
+                      <button 
+                        onClick={() => setCurrentVisit(prev => ({ ...prev, date: getLocalISOString() }))}
+                        style={{ fontSize: '11px', color: 'var(--primary-600)', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        className="btn-ghost"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        当前
+                      </button>
+                    )}
+                  </div>
+                  <input 
+                    type="datetime-local"
+                    className="input"
+                    value={currentVisit.date || ''}
+                    onChange={(e) => setCurrentVisit(prev => ({ ...prev, date: e.target.value }))}
+                    disabled={isReadOnly}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* 2. Recording List */}
-          {(currentVisit.recordings?.length ?? 0) > 0 && (
-              <div className="mb-4 space-y-2">
-                 <label className="block text-xs font-semibold text-slate-500 uppercase">录音文件 ({currentVisit.recordings?.length})</label>
-                 <div className="grid gap-2">
-                    {currentVisit.recordings?.map((rec, index) => (
-                        <div key={rec.id || index} className="flex flex-col p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
-                           <div className="flex items-center justify-between mb-2">
-                               <div className="flex items-center overflow-hidden">
-                                  <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center mr-3 flex-shrink-0 text-indigo-600">
-                                     <PlayCircle className="w-5 h-5" />
-                                  </div>
-                                  <div className="min-w-0">
-                                     <p className="text-xs font-bold text-slate-700">录音 {index + 1}</p>
-                                     <p className="text-[10px] text-slate-400">
-                                        {new Date(rec.timestamp).toLocaleString('zh-CN', {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})} 
-                                        {rec.duration ? ` • ${formatDuration(rec.duration)}` : ''}
-                                     </p>
-                                  </div>
-                               </div>
-                               {!isReadOnly && (
-                                   <div className="flex items-center">
-                                      <button 
-                                        type="button"
-                                        onClick={() => handleDeleteRecording(index)}
-                                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                        title="删除此录音"
-                                      >
-                                         <Trash2 className="w-4 h-4" />
-                                      </button>
-                                   </div>
-                               )}
-                           </div>
-                           
-                           {/* Audio Controls */}
-                           <audio src={rec.url} controls className="w-full h-8 mb-2" />
-                           
-                           {/* Transcribe Button */}
-                           {!isReadOnly && (
-                               <button 
-                                  onClick={() => handleTranscribeAudio(rec)}
-                                  disabled={transcribingId === rec.id}
-                                  className={`w-full py-1.5 flex items-center justify-center text-xs font-medium rounded border transition-colors ${
-                                      transcribingId === rec.id 
-                                      ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200' 
-                                      : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
-                                  }`}
-                               >
-                                  {transcribingId === rec.id ? <Loader2 className="w-3 h-3 animate-spin mr-1"/> : <FileText className="w-3 h-3 mr-1"/>}
-                                  {transcribingId === rec.id ? '正在转写中...' : '转写为文字 (Gemini AI)'}
-                               </button>
-                           )}
-                        </div>
-                    ))}
-                 </div>
+          {/* Section 2: Visit Details Card */}
+          <div style={{ 
+            background: 'var(--bg-secondary)', 
+            borderRadius: 'var(--radius-md)', 
+            border: '1px solid var(--border-light)',
+            padding: '20px',
+            marginBottom: '16px'
+          }}>
+            <h3 style={{ 
+              fontSize: '14px', 
+              fontWeight: 600, 
+              color: 'var(--text-primary)',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <MapPin className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+              拜访详情
+            </h3>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* Location */}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  fontSize: '12px', 
+                  fontWeight: 600, 
+                  color: 'var(--text-secondary)', 
+                  textTransform: 'uppercase',
+                  marginBottom: '6px'
+                }}>拜访地点</label>
+                <div style={{ position: 'relative' }}>
+                  <MapPin style={{ 
+                    position: 'absolute', 
+                    left: '12px', 
+                    top: '50%', 
+                    transform: 'translateY(-50%)', 
+                    color: 'var(--text-tertiary)', 
+                    width: '16px', 
+                    height: '16px' 
+                  }} />
+                  <input 
+                    className="input"
+                    style={{ paddingLeft: '40px', background: 'var(--bg-primary)' }}
+                    placeholder="输入地址或会议室..."
+                    value={currentVisit.location || ''}
+                    onChange={(e) => setCurrentVisit(prev => ({ ...prev, location: e.target.value }))}
+                    disabled={isReadOnly}
+                  />
+                </div>
               </div>
+
+              {/* Contact Person */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '12px', 
+                    fontWeight: 600, 
+                    color: 'var(--text-secondary)', 
+                    textTransform: 'uppercase',
+                    marginBottom: '6px'
+                  }}>拜访对象</label>
+                  <input 
+                    className="input"
+                    style={{ background: 'var(--bg-primary)' }}
+                    value={currentVisit.clientContact || ''}
+                    placeholder="姓名"
+                    onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientContact: e.target.value }))}
+                    disabled={isReadOnly}
+                  />
+                </div>
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '12px', 
+                    fontWeight: 600, 
+                    color: 'var(--text-secondary)', 
+                    textTransform: 'uppercase',
+                    marginBottom: '6px'
+                  }}>职位</label>
+                  <input 
+                    className="input"
+                    style={{ background: 'var(--bg-primary)' }}
+                    value={currentVisit.clientContactRole || ''}
+                    placeholder="职位"
+                    onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientContactRole: e.target.value }))}
+                    disabled={isReadOnly}
+                  />
+                </div>
+              </div>
+
+              {/* Participants */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '12px', 
+                    fontWeight: 600, 
+                    color: 'var(--text-secondary)', 
+                    textTransform: 'uppercase',
+                    marginBottom: '6px'
+                  }}>其他客户参与人</label>
+                  <input 
+                    className="input"
+                    style={{ background: 'var(--bg-primary)' }}
+                    value={currentVisit.clientParticipants || ''}
+                    placeholder="姓名, 职位..."
+                    onChange={(e) => setCurrentVisit(prev => ({ ...prev, clientParticipants: e.target.value }))}
+                    disabled={isReadOnly}
+                  />
+                </div>
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '12px', 
+                    fontWeight: 600, 
+                    color: 'var(--text-secondary)', 
+                    textTransform: 'uppercase',
+                    marginBottom: '6px'
+                  }}>我方参与人</label>
+                  <input 
+                    className="input"
+                    style={{ background: 'var(--bg-primary)' }}
+                    value={currentVisit.ourParticipants || ''}
+                    placeholder="同事姓名..."
+                    onChange={(e) => setCurrentVisit(prev => ({ ...prev, ourParticipants: e.target.value }))}
+                    disabled={isReadOnly}
+                  />
+                </div>
+              </div>
+              
+              {/* Owner */}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  fontSize: '12px', 
+                  fontWeight: 600, 
+                  color: 'var(--text-secondary)', 
+                  textTransform: 'uppercase',
+                  marginBottom: '6px'
+                }}>负责人 (录入人)</label>
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px',
+                  padding: '10px 14px',
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  fontSize: '14px',
+                  color: 'var(--text-secondary)'
+                }}>
+                  <UserIcon className="w-4 h-4" style={{ color: 'var(--text-tertiary)' }} />
+                  {currentVisit.ownerName || currentUser.name}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Custom Fields */}
+          {fieldDefinitions.length > 0 && (
+            <div style={{ 
+              background: 'var(--bg-secondary)', 
+              borderRadius: 'var(--radius-md)', 
+              border: '1px solid var(--border-light)',
+              padding: '20px',
+              marginBottom: '16px'
+            }}>
+              <h3 style={{ 
+                fontSize: '14px', 
+                fontWeight: 600, 
+                color: 'var(--text-primary)',
+                marginBottom: '16px'
+              }}>
+                自定义字段
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                {fieldDefinitions.map(field => (
+                  <div key={field.id}>
+                    <label style={{ 
+                      display: 'block', 
+                      fontSize: '12px', 
+                      fontWeight: 600, 
+                      color: 'var(--text-secondary)', 
+                      textTransform: 'uppercase',
+                      marginBottom: '6px'
+                    }}>{field.label}</label>
+                    {field.type === 'select' ? (
+                      <select
+                        className="input"
+                        style={{ background: 'var(--bg-primary)' }}
+                        value={currentVisit.customFields?.[field.key] || ''}
+                        onChange={(e) => {
+                            setCurrentVisit(prev => ({
+                              ...prev,
+                              customFields: { ...prev.customFields, [field.key]: e.target.value }
+                            }));
+                        }}
+                        disabled={isReadOnly}
+                      >
+                        <option value="">请选择</option>
+                        {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    ) : (
+                      <input 
+                        type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+                        className="input"
+                        style={{ background: 'var(--bg-primary)' }}
+                        value={currentVisit.customFields?.[field.key] || ''}
+                        onChange={(e) => {
+                            let val: any = e.target.value;
+                            if (field.type === 'number') {
+                                val = val === '' ? null : Number(val);
+                            }
+                            setCurrentVisit(prev => ({
+                              ...prev,
+                              customFields: { ...prev.customFields, [field.key]: val }
+                            }));
+                        }}
+                        disabled={isReadOnly}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
-          {/* 3. Main Input (Rich Text Editor) */}
-          <div className={`flex flex-col transition-all ${expandedSection === 'notes' ? 'fixed inset-0 z-50 bg-white p-6' : 'relative flex-1 min-h-[350px]'}`}>
-             <div className="flex justify-between items-end mb-1">
-               <label className="block text-xs font-semibold text-slate-500 uppercase">
-                 拜访笔记 
-                 {isRecording && (
-                    <span className="ml-2 text-xs normal-case font-normal inline-flex items-center">
-                       {recordingState === 'connecting' ? (
-                          <span className="text-amber-500 animate-pulse flex items-center"><Wifi className="w-3 h-3 mr-1"/> 连接云端中...</span>
-                       ) : (
-                          <span className="text-red-500 animate-pulse flex items-center"><Mic className="w-3 h-3 mr-1"/> 正在录音 {formatDuration(currentAudioDuration)}</span>
-                       )}
-                    </span>
-                 )}
-               </label>
-               <button 
-                  onClick={() => setExpandedSection(expandedSection === 'notes' ? null : 'notes')}
-                  className="text-slate-400 hover:text-indigo-600 p-1 rounded hover:bg-slate-100"
-                  title={expandedSection === 'notes' ? "最小化" : "全屏编辑"}
-               >
-                  {expandedSection === 'notes' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-3 h-3"/>}
-               </button>
-             </div>
-             
-             {/* Rich Text Toolbar & Editor */}
-             <div className={`flex-1 flex flex-col border border-slate-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent transition-all ${expandedSection === 'notes' ? 'shadow-2xl' : ''}`}>
-                {/* Toolbar */}
-                <div className="flex items-center gap-1 p-2 border-b border-slate-100 bg-slate-50">
-                    <button 
-                      onClick={(e) => { e.preventDefault(); handleFormat('bold'); }}
-                      className={`p-1.5 rounded text-slate-600 ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Bold"
-                      type="button"
-                      disabled={isReadOnly}
-                    >
-                      <Bold className="w-4 h-4"/>
-                    </button>
-                    <button 
-                      onClick={(e) => { e.preventDefault(); handleFormat('italic'); }}
-                      className={`p-1.5 rounded text-slate-600 ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Italic"
-                      type="button"
-                      disabled={isReadOnly}
-                    >
-                      <Italic className="w-4 h-4"/>
-                    </button>
-                    <div className="w-px h-4 bg-slate-300 mx-1"></div>
-                    <button 
-                      onClick={(e) => { e.preventDefault(); handleFormat('insertUnorderedList'); }}
-                      className={`p-1.5 rounded text-slate-600 ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Bullet List"
-                      type="button"
-                      disabled={isReadOnly}
-                    >
-                      <List className="w-4 h-4"/>
-                    </button>
-                    <button 
-                      onClick={(e) => { e.preventDefault(); handleFormat('insertOrderedList'); }}
-                      className={`p-1.5 rounded text-slate-600 ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`} title="Ordered List"
-                      type="button"
-                      disabled={isReadOnly}
-                    >
-                      <ListOrdered className="w-4 h-4"/>
-                    </button>
-                    <div className="w-px h-4 bg-slate-300 mx-1"></div>
-                    {/* Template Button */}
-                    <div className="relative" ref={templateRef}>
+          {/* Section 3: Recording List */}
+          {(currentVisit.recordings?.length ?? 0) > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{ 
+                fontSize: '14px', 
+                fontWeight: 600, 
+                color: 'var(--text-primary)',
+                marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <Volume2 className="w-4 h-4" style={{ color: 'var(--primary-500)' }} />
+                录音文件 ({currentVisit.recordings?.length})
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {currentVisit.recordings?.map((rec, index) => (
+                  <div 
+                    key={rec.id || index} 
+                    style={{ 
+                      background: 'var(--bg-primary)', 
+                      border: '1px solid var(--border-light)', 
+                      borderRadius: 'var(--radius-md)', 
+                      padding: '16px',
+                      boxShadow: 'var(--shadow-sm)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ 
+                          width: '40px', 
+                          height: '40px', 
+                          borderRadius: '50%', 
+                          background: 'var(--primary-50)', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          color: 'var(--primary-600)'
+                        }}>
+                          <PlayCircle className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            录音 {index + 1}
+                          </p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                            {new Date(rec.timestamp).toLocaleString('zh-CN', {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})} 
+                            {rec.duration ? ` • ${formatDuration(rec.duration)}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      {!isReadOnly && (
                         <button 
-                            onClick={(e) => { e.preventDefault(); !isReadOnly && setIsTemplateOpen(!isTemplateOpen); }}
-                            className={`p-1.5 rounded text-slate-600 flex items-center ${isReadOnly ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-200'}`}
-                            title="Insert Template"
-                            type="button"
-                            disabled={isReadOnly}
+                          onClick={() => handleDeleteRecording(index)}
+                          style={{ 
+                            padding: '8px', 
+                            color: 'var(--text-tertiary)', 
+                            borderRadius: 'var(--radius)',
+                            transition: 'all var(--transition-fast)'
+                          }}
+                          className="btn-danger"
+                          title="删除此录音"
                         >
-                            <FileText className="w-4 h-4 mr-1"/> <span className="text-xs">模板</span>
+                          <Trash2 className="w-4 h-4" />
                         </button>
-                        {isTemplateOpen && !isReadOnly && (
-                            <div className="absolute top-full left-0 mt-1 bg-white border border-slate-100 rounded-lg shadow-xl z-20 w-32 py-1">
-                                <button 
-                                    className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                                    onClick={() => insertTemplate('SPIN')}
-                                >
-                                    SPIN 销售法
-                                </button>
-                                <button 
-                                    className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                                    onClick={() => insertTemplate('MEETING')}
-                                >
-                                    会议纪要
-                                </button>
-                            </div>
-                        )}
+                      )}
                     </div>
-                </div>
+                    
+                    <audio src={rec.url} controls style={{ width: '100%', height: '40px', marginBottom: '12px' }} />
+                    
+                    {!isReadOnly && (
+                      <button 
+                        onClick={() => handleTranscribeAudio(rec)}
+                        disabled={transcribingId === rec.id}
+                        className="btn"
+                        style={{ 
+                          width: '100%',
+                          background: transcribingId === rec.id ? 'var(--bg-tertiary)' : 'var(--success-light)',
+                          color: transcribingId === rec.id ? 'var(--text-tertiary)' : '#065f46',
+                          border: `1px solid ${transcribingId === rec.id ? 'var(--border)' : 'var(--success)'}`,
+                          opacity: transcribingId === rec.id ? 0.7 : 1,
+                          fontSize: '13px'
+                        }}
+                      >
+                        {transcribingId === rec.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                        {transcribingId === rec.id ? '科大讯飞转写中...' : '转写为文字 (科大讯飞)'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Section 4: Rich Text Editor */}
+          <div style={{ 
+            flex: 1, 
+            display: 'flex', 
+            flexDirection: 'column',
+            minHeight: expandedSection === 'notes' ? 'auto' : '350px'
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: '8px'
+            }}>
+              <label style={{ 
+                fontSize: '12px', 
+                fontWeight: 600, 
+                color: 'var(--text-secondary)', 
+                textTransform: 'uppercase',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <StickyNote className="w-4 h-4" />
+                拜访笔记 (支持 Markdown)
+                {isRecording && (
+                  <span style={{ 
+                    marginLeft: '12px', 
+                    fontSize: '13px', 
+                    textTransform: 'none', 
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    background: recordingState === 'connecting' ? '#FEF3C7' : '#FEE2E2',
+                    border: `1px solid ${recordingState === 'connecting' ? '#FCD34D' : '#FECACA'}`
+                  }}>
+                    {recordingState === 'connecting' ? (
+                      <span style={{ color: '#92400E', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Wifi className="w-3.5 h-3.5 animate-pulse" /> 连接科大讯飞云端中...
+                      </span>
+                    ) : (
+                      <span style={{ color: '#991B1B', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{
+                          width: '8px',
+                          height: '8px',
+                          background: '#EF4444',
+                          borderRadius: '50%',
+                          animation: 'pulse 1.5s ease-in-out infinite'
+                        }} />
+                        实时转写中 {formatDuration(currentAudioDuration)}
+                      </span>
+                    )}
+                  </span>
+                )}
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {/* Markdown Preview Toggle */}
+                {!isReadOnly && (
+                  <button 
+                    onClick={() => setIsMarkdownPreview(!isMarkdownPreview)}
+                    style={{ 
+                      padding: '6px 12px', 
+                      borderRadius: 'var(--radius-sm)', 
+                      color: isMarkdownPreview ? 'var(--primary-600)' : 'var(--text-secondary)',
+                      background: isMarkdownPreview ? 'var(--primary-50)' : 'transparent',
+                      border: `1px solid ${isMarkdownPreview ? 'var(--primary-300)' : 'var(--border)'}`,
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      transition: 'all var(--transition-fast)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                    title={isMarkdownPreview ? "切换到编辑模式" : "切换到预览模式"}
+                  >
+                    {isMarkdownPreview ? <Edit3 className="w-3.5 h-3.5"/> : <Eye className="w-3.5 h-3.5"/>}
+                    {isMarkdownPreview ? '编辑' : '预览'}
+                  </button>
+                )}
+                <button 
+                  onClick={() => setExpandedSection(expandedSection === 'notes' ? null : 'notes')}
+                  style={{ 
+                    padding: '6px', 
+                    color: 'var(--text-tertiary)', 
+                    borderRadius: 'var(--radius-sm)',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  className="btn-ghost"
+                  title={expandedSection === 'notes' ? "最小化" : "全屏编辑"}
+                >
+                  {expandedSection === 'notes' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-4 h-4"/>}
+                </button>
+              </div>
+            </div>
+            
+            {/* Rich Text Toolbar & Editor */}
+            <div style={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column',
+              border: '1px solid var(--border)', 
+              borderRadius: 'var(--radius-md)', 
+              overflow: 'hidden',
+              background: 'var(--bg-primary)'
+            }}>
+              {/* Modern Toolbar */}
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '4px', 
+                padding: '10px 12px', 
+                borderBottom: '1px solid var(--border-light)', 
+                background: 'var(--bg-tertiary)',
+                flexWrap: 'wrap'
+              }}>
+                <button 
+                  onClick={(e) => { e.preventDefault(); handleFormat('bold'); }}
+                  style={{ 
+                    padding: '8px', 
+                    borderRadius: 'var(--radius-sm)', 
+                    color: 'var(--text-secondary)',
+                    opacity: isReadOnly ? 0.5 : 1,
+                    cursor: isReadOnly ? 'not-allowed' : 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  className={!isReadOnly ? 'btn-ghost' : ''}
+                  title="加粗"
+                  type="button"
+                  disabled={isReadOnly}
+                >
+                  <Bold className="w-4 h-4"/>
+                </button>
+                <button 
+                  onClick={(e) => { e.preventDefault(); handleFormat('italic'); }}
+                  style={{ 
+                    padding: '8px', 
+                    borderRadius: 'var(--radius-sm)', 
+                    color: 'var(--text-secondary)',
+                    opacity: isReadOnly ? 0.5 : 1,
+                    cursor: isReadOnly ? 'not-allowed' : 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  className={!isReadOnly ? 'btn-ghost' : ''}
+                  title="斜体"
+                  type="button"
+                  disabled={isReadOnly}
+                >
+                  <Italic className="w-4 h-4"/>
+                </button>
+                <div style={{ width: '1px', height: '20px', background: 'var(--border)', margin: '0 4px' }} />
+                <button 
+                  onClick={(e) => { e.preventDefault(); handleFormat('insertUnorderedList'); }}
+                  style={{ 
+                    padding: '8px', 
+                    borderRadius: 'var(--radius-sm)', 
+                    color: 'var(--text-secondary)',
+                    opacity: isReadOnly ? 0.5 : 1,
+                    cursor: isReadOnly ? 'not-allowed' : 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  className={!isReadOnly ? 'btn-ghost' : ''}
+                  title="无序列表"
+                  type="button"
+                  disabled={isReadOnly}
+                >
+                  <List className="w-4 h-4"/>
+                </button>
+                <button 
+                  onClick={(e) => { e.preventDefault(); handleFormat('insertOrderedList'); }}
+                  style={{ 
+                    padding: '8px', 
+                    borderRadius: 'var(--radius-sm)', 
+                    color: 'var(--text-secondary)',
+                    opacity: isReadOnly ? 0.5 : 1,
+                    cursor: isReadOnly ? 'not-allowed' : 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  className={!isReadOnly ? 'btn-ghost' : ''}
+                  title="有序列表"
+                  type="button"
+                  disabled={isReadOnly}
+                >
+                  <ListOrdered className="w-4 h-4"/>
+                </button>
+                <div style={{ width: '1px', height: '20px', background: 'var(--border)', margin: '0 4px' }} />
                 
-                {/* Editable Area */}
+                {/* Voice Input Button - iFlytek Real-time Voice Input */}
+                <button 
+                  onClick={handleVoiceToggle}
+                  disabled={isReadOnly}
+                  style={{ 
+                    padding: '8px 12px', 
+                    borderRadius: 'var(--radius-sm)', 
+                    color: isRecording ? '#EF4444' : 'var(--text-secondary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    opacity: isReadOnly ? 0.5 : 1,
+                    cursor: isReadOnly ? 'not-allowed' : 'pointer',
+                    transition: 'all var(--transition-fast)',
+                    background: isRecording ? '#FEE2E2' : 'transparent',
+                    border: isRecording ? '1px solid #FECACA' : 'none'
+                  }}
+                  className={!isReadOnly ? 'btn-ghost' : ''}
+                  title={isRecording ? "停止录音 (科大讯飞实时转写)" : "开始录音 (科大讯飞实时转写)"}
+                  type="button"
+                >
+                  {isRecording ? (
+                    <>
+                      <span style={{
+                        width: '8px',
+                        height: '8px',
+                        background: '#EF4444',
+                        borderRadius: '50%',
+                        animation: 'pulse 1.5s ease-in-out infinite'
+                      }} />
+                      <Square className="w-4 h-4" fill="currentColor" />
+                      <span>停止录音</span>
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-4 h-4" />
+                      <span>语音录入</span>
+                    </>
+                  )}
+                </button>
+                
+                <div style={{ width: '1px', height: '20px', background: 'var(--border)', margin: '0 4px' }} />
+                
+                {/* Upload Button */}
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{ 
+                    padding: '8px 12px', 
+                    borderRadius: 'var(--radius-sm)', 
+                    color: 'var(--text-secondary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '13px',
+                    opacity: isReadOnly || isRecording ? 0.5 : 1,
+                    cursor: isReadOnly || isRecording ? 'not-allowed' : 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  className={!isReadOnly && !isRecording ? 'btn-ghost' : ''}
+                  title="上传录音文件"
+                  type="button"
+                  disabled={isReadOnly || isRecording}
+                >
+                  <Upload className="w-4 h-4"/>
+                  <span>上传录音</span>
+                </button>
+                <input 
+                  type="file" 
+                  accept="audio/*" 
+                  ref={fileInputRef} 
+                  style={{ display: 'none' }} 
+                  onChange={handleFileUpload}
+                />
+                
+                <div style={{ width: '1px', height: '20px', background: 'var(--border)', margin: '0 4px' }} />
+                
+                {/* Template Dropdown */}
+                <div ref={templateRef} style={{ position: 'relative' }}>
+                  <button 
+                    onClick={(e) => { e.preventDefault(); !isReadOnly && setIsTemplateOpen(!isTemplateOpen); }}
+                    style={{ 
+                      padding: '8px 12px', 
+                      borderRadius: 'var(--radius-sm)', 
+                      color: 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '13px',
+                      opacity: isReadOnly ? 0.5 : 1,
+                      cursor: isReadOnly ? 'not-allowed' : 'pointer',
+                      transition: 'all var(--transition-fast)'
+                    }}
+                    className={!isReadOnly ? 'btn-ghost' : ''}
+                    title="插入模板"
+                    type="button"
+                    disabled={isReadOnly}
+                  >
+                    <FileText className="w-4 h-4"/> 模板
+                  </button>
+                  {isTemplateOpen && !isReadOnly && (
+                    <div style={{ 
+                      position: 'absolute', 
+                      top: 'calc(100% + 4px)', 
+                      left: 0, 
+                      background: 'var(--bg-primary)', 
+                      border: '1px solid var(--border-light)', 
+                      borderRadius: 'var(--radius)', 
+                      boxShadow: 'var(--shadow-lg)', 
+                      zIndex: 20, 
+                      minWidth: '140px',
+                      overflow: 'hidden'
+                    }}>
+                      <button 
+                        style={{ 
+                          display: 'block', 
+                          width: '100%', 
+                          textAlign: 'left', 
+                          padding: '10px 14px', 
+                          fontSize: '13px', 
+                          color: 'var(--text-primary)',
+                          transition: 'background var(--transition-fast)',
+                          borderBottom: '1px solid var(--border-light)'
+                        }}
+                        className="hover:bg-slate-50"
+                        onClick={() => insertTemplate('SPIN')}
+                      >
+                        SPIN 销售法
+                      </button>
+                      <button 
+                        style={{ 
+                          display: 'block', 
+                          width: '100%', 
+                          textAlign: 'left', 
+                          padding: '10px 14px', 
+                          fontSize: '13px', 
+                          color: 'var(--text-primary)',
+                          transition: 'background var(--transition-fast)'
+                        }}
+                        className="hover:bg-slate-50"
+                        onClick={() => insertTemplate('MEETING')}
+                      >
+                        会议纪要
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Editable Area or Markdown Preview */}
+              {isMarkdownPreview && !isReadOnly ? (
+                /* Markdown Preview Mode */
+                <div 
+                  style={{ 
+                    flex: 1, 
+                    padding: '16px', 
+                    background: 'var(--bg-primary)', 
+                    outline: 'none', 
+                    overflowY: 'auto',
+                    color: 'var(--text-primary)',
+                    lineHeight: 1.7,
+                    fontSize: '15px'
+                  }}
+                >
+                  {currentVisit.content ? (
+                    <MarkdownRenderer content={currentVisit.content.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '')} />
+                  ) : (
+                    <p style={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>暂无内容</p>
+                  )}
+                </div>
+              ) : (
+                /* Edit Mode */
                 <div 
                   ref={editorRef}
                   contentEditable={!isReadOnly}
                   suppressContentEditableWarning
-                  className={`flex-1 p-4 bg-white outline-none overflow-y-auto text-slate-900 leading-relaxed text-base [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 empty:before:pointer-events-none ${isReadOnly ? 'cursor-default bg-slate-50' : ''}`}
+                  style={{ 
+                    flex: 1, 
+                    padding: '16px', 
+                    background: 'var(--bg-primary)', 
+                    outline: 'none', 
+                    overflowY: 'auto',
+                    color: 'var(--text-primary)',
+                    lineHeight: 1.7,
+                    fontSize: '15px',
+                    cursor: isReadOnly ? 'default' : 'text'
+                  }}
                   onInput={(e) => {
-                     // Sync state on manual input - capture value immediately to prevent stale event issues
                      const newContent = e.currentTarget.innerHTML;
                      setCurrentVisit(prev => ({...prev, content: newContent}));
                   }}
                   onBlur={(e) => {
-                     // Ensure state is synced on blur - capture value immediately
                      const newContent = e.currentTarget.innerHTML;
                      setCurrentVisit(prev => ({...prev, content: newContent}));
                   }}
-                  data-placeholder={isReadOnly ? "无内容" : "开始输入，或点击右下角麦克风进行实时语音转写..."}
+                  data-placeholder={isReadOnly ? "无内容" : "开始输入拜访笔记，或使用工具栏中的语音录入功能进行实时语音转文字..."}
                 />
-             </div>
-             
-             {/* Floating Record & Upload Buttons - Hide in full screen mode */}
-             {!expandedSection && !isReadOnly && (
-               <div className="absolute bottom-4 right-4 flex space-x-3">
-                   {/* Upload Button */}
-                   <button 
-                     onClick={() => fileInputRef.current?.click()}
-                     className="p-3 rounded-full shadow-lg bg-white border border-slate-200 text-slate-600 hover:text-indigo-600 hover:scale-105 transition-all"
-                     title="上传录音文件"
-                     disabled={isRecording}
-                   >
-                     <Upload className="w-5 h-5" />
-                   </button>
-                   <input 
-                      type="file" 
-                      accept="audio/*" 
-                      ref={fileInputRef} 
-                      className="hidden" 
-                      onChange={handleFileUpload}
-                   />
-
-                   {/* Mic Button */}
-                   <button 
-                     onClick={handleVoiceToggle}
-                     className={`p-3 rounded-full shadow-lg transition-all transform hover:scale-105 ${
-                       isRecording 
-                         ? 'bg-red-500 text-white shadow-red-200 ring-4 ring-red-100' 
-                         : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
-                     }`}
-                     title={isRecording ? "停止录音" : "开始录音"}
-                   >
-                     {isRecording ? <Square className="w-6 h-6 fill-current" /> : <Mic className="w-6 h-6" />}
-                   </button>
-               </div>
-             )}
+              )}
+            </div>
           </div>
         </div>
 
         {/* RIGHT COLUMN: AI Insights */}
-        <div className={`flex flex-col bg-slate-50 rounded-2xl border border-slate-200 p-6 overflow-y-auto transition-all ${expandedSection === 'ai' ? 'fixed inset-0 z-50 h-full' : 'h-full'}`}>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-slate-800 flex items-center">
-              <Sparkles className="w-5 h-5 mr-2 text-indigo-600" /> AI 智能洞察
+        <div style={{ 
+          background: 'linear-gradient(135deg, var(--primary-50) 0%, var(--bg-secondary) 100%)', 
+          borderRadius: expandedSection === 'ai' ? '0' : 'var(--radius-md)', 
+          border: '1px solid var(--primary-200)',
+          boxShadow: 'var(--shadow)',
+          padding: expandedSection === 'ai' ? '24px 48px' : '24px', 
+          overflowY: 'auto',
+          display: expandedSection === 'notes' ? 'none' : 'flex',
+          flexDirection: 'column',
+          opacity: expandedSection === 'notes' ? 0 : 1,
+          transition: 'all var(--transition)'
+        }}>
+          {/* Header */}
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between', 
+            marginBottom: '20px',
+            paddingBottom: '16px',
+            borderBottom: '1px solid var(--primary-100)'
+          }}>
+            <h3 style={{ 
+              fontSize: '16px', 
+              fontWeight: 700, 
+              color: 'var(--primary-800)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px'
+            }}>
+              <div style={{ 
+                width: '32px', 
+                height: '32px', 
+                borderRadius: 'var(--radius)', 
+                background: 'var(--primary-600)', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                color: 'white'
+              }}>
+                <Sparkles className="w-5 h-5" />
+              </div>
+              AI 智能洞察
             </h3>
             
-            <div className="flex items-center space-x-2">
-               {/* Model Selector */}
-               {!isReadOnly && (
-                   <select 
-                      value={selectedAiModel}
-                      onChange={(e) => setSelectedAiModel(e.target.value as AIModelType)}
-                      className="text-xs bg-white border border-indigo-100 text-slate-700 px-2 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                      title="选择分析模型"
-                   >
-                      <option value="gemini">Gemini</option>
-                      <option value="deepseek">DeepSeek</option>
-                      <option value="spark">讯飞星火</option>
-                   </select>
-               )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Model Selector */}
+              {!isReadOnly && (
+                <select 
+                  value={selectedAiModel}
+                  onChange={(e) => setSelectedAiModel(e.target.value as AIModelType)}
+                  style={{ 
+                    fontSize: '12px', 
+                    background: 'var(--bg-primary)', 
+                    border: '1px solid var(--primary-200)', 
+                    color: 'var(--primary-700)', 
+                    padding: '6px 10px', 
+                    borderRadius: 'var(--radius-sm)',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                  title="选择分析模型"
+                >
+                  <option value="gemini">Gemini</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="spark">讯飞星火</option>
+                  <option value="kimi">Kimi</option>
+                </select>
+              )}
 
-               <button 
-                  onClick={() => setExpandedSection(expandedSection === 'ai' ? null : 'ai')}
-                  className="text-slate-400 hover:text-indigo-600 p-1.5 rounded hover:bg-slate-200"
-                  title={expandedSection === 'ai' ? "最小化" : "全屏查看"}
-               >
-                  {expandedSection === 'ai' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-4 h-4"/>}
-               </button>
+              <button 
+                onClick={() => setExpandedSection(expandedSection === 'ai' ? null : 'ai')}
+                style={{ 
+                  padding: '6px', 
+                  color: 'var(--primary-600)', 
+                  borderRadius: 'var(--radius-sm)',
+                  transition: 'all var(--transition-fast)'
+                }}
+                className="btn-ghost"
+                title={expandedSection === 'ai' ? "最小化" : "全屏查看"}
+              >
+                {expandedSection === 'ai' ? <Minimize2 className="w-4 h-4"/> : <Maximize2 className="w-4 h-4"/>}
+              </button>
             </div>
           </div>
           
-          {/* Analyze Button (Moved out of header for better mobile layout) */}
+          {/* Analyze Buttons */}
           {!isReadOnly && (
-             <div className="mb-6">
-               <button 
-                 onClick={handleAIAnalyze}
-                 disabled={isAnalyzing || !currentVisit.content}
-                 className="w-full text-xs bg-white border border-indigo-200 text-indigo-700 px-3 py-2 rounded-lg font-bold hover:bg-indigo-50 disabled:opacity-50 flex items-center justify-center shadow-sm"
-               >
-                 {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin mr-2"/> : <BrainCircuit className="w-4 h-4 mr-2"/>}
-                 {isAnalyzing ? `正在使用 ${selectedAiModel} 分析...` : '开始智能分析'}
-               </button>
-             </div>
+            <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button 
+                onClick={handleAIAnalyze}
+                disabled={isAnalyzing || !currentVisit.content}
+                className="btn"
+                style={{ 
+                  width: '100%',
+                  background: 'var(--bg-primary)',
+                  border: '1px solid var(--primary-300)',
+                  color: 'var(--primary-700)',
+                  fontWeight: 600,
+                  opacity: (isAnalyzing || !currentVisit.content) ? 0.6 : 1,
+                  cursor: (isAnalyzing || !currentVisit.content) ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin"/> : <BrainCircuit className="w-4 h-4"/>}
+                {isAnalyzing ? `正在使用 ${selectedAiModel} 分析...` : '开始智能分析'}
+              </button>
+            </div>
           )}
 
           {!currentVisit.summary ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
-              <Sparkles className="w-8 h-8 mb-2 opacity-20" />
-              <p>记录或输入笔记以解锁 AI 洞察</p>
+            <div style={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              color: 'var(--text-tertiary)', 
+              fontSize: '14px',
+              border: '2px dashed var(--primary-200)',
+              borderRadius: 'var(--radius-md)',
+              padding: '40px',
+              textAlign: 'center'
+            }}>
+              <div style={{ 
+                width: '64px', 
+                height: '64px', 
+                borderRadius: '50%', 
+                background: 'var(--primary-100)', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                marginBottom: '16px'
+              }}>
+                <BarChart3 className="w-8 h-8" style={{ color: 'var(--primary-400)' }} />
+              </div>
+              <p style={{ fontWeight: 500, marginBottom: '4px' }}>记录或输入笔记以解锁 AI 洞察</p>
+              <p style={{ fontSize: '13px' }}>AI 将自动生成摘要、情感分析和待办事项</p>
             </div>
           ) : (
-            <div className="space-y-6 animate-fade-in-up">
-              {/* Summary */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">执行摘要</h4>
-                <p className="text-sm text-slate-700 bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }} className="animate-fade-in-up">
+              {/* Summary Card */}
+              <div style={{ 
+                background: 'var(--bg-primary)', 
+                borderRadius: 'var(--radius)', 
+                padding: '16px',
+                border: '1px solid var(--primary-100)',
+                boxShadow: 'var(--shadow-sm)'
+              }}>
+                <h4 style={{ 
+                  fontSize: '11px', 
+                  fontWeight: 700, 
+                  color: 'var(--primary-600)', 
+                  textTransform: 'uppercase',
+                  marginBottom: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <FileText className="w-3 h-3" />
+                  执行摘要
+                </h4>
+                <p style={{ fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.7 }}>
                   {currentVisit.summary}
                 </p>
               </div>
 
-              {/* Sentiment */}
-              <div>
-                 <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">情感分析</h4>
-                 <div className="flex items-center">
-                    <div className={`flex-1 h-2 rounded-full bg-slate-200 overflow-hidden`}>
-                       <div 
-                         className={`h-full ${
-                           currentVisit.sentiment === Sentiment.Positive ? 'bg-emerald-500 w-3/4' : 
-                           currentVisit.sentiment === Sentiment.Negative ? 'bg-red-500 w-1/4' : 'bg-blue-400 w-1/2'
-                         }`}
-                       ></div>
-                    </div>
-                    <span className="ml-3 text-sm font-medium text-slate-700">{currentVisit.sentiment}</span>
-                 </div>
+              {/* Sentiment Card */}
+              <div style={{ 
+                background: 'var(--bg-primary)', 
+                borderRadius: 'var(--radius)', 
+                padding: '16px',
+                border: '1px solid var(--primary-100)',
+                boxShadow: 'var(--shadow-sm)'
+              }}>
+                <h4 style={{ 
+                  fontSize: '11px', 
+                  fontWeight: 700, 
+                  color: 'var(--primary-600)', 
+                  textTransform: 'uppercase',
+                  marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <div 
+                    className={getSentimentDotClass(currentVisit.sentiment)}
+                    style={{ 
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: currentVisit.sentiment === Sentiment.Positive ? 'var(--success)' : 
+                                 currentVisit.sentiment === Sentiment.Negative ? 'var(--danger)' : 'var(--text-tertiary)'
+                    }}
+                  />
+                  情感分析
+                </h4>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ 
+                    flex: 1, 
+                    height: '8px', 
+                    borderRadius: 'var(--radius-full)', 
+                    background: 'var(--bg-tertiary)',
+                    overflow: 'hidden'
+                  }}>
+                    <div 
+                      style={{ 
+                        height: '100%', 
+                        borderRadius: 'var(--radius-full)',
+                        background: currentVisit.sentiment === Sentiment.Positive ? 'var(--success)' : 
+                                   currentVisit.sentiment === Sentiment.Negative ? 'var(--danger)' : 'var(--primary-400)',
+                        width: currentVisit.sentiment === Sentiment.Positive ? '75%' : 
+                               currentVisit.sentiment === Sentiment.Negative ? '25%' : '50%',
+                        transition: 'width var(--transition-slow)'
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)', minWidth: '40px' }}>
+                    {currentVisit.sentiment}
+                  </span>
+                </div>
               </div>
 
-              {/* To-Dos */}
-              <div>
-                <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">待办事项</h4>
-                <div className="space-y-2">
+              {/* To-Dos Card */}
+              <div style={{ 
+                background: 'var(--bg-primary)', 
+                borderRadius: 'var(--radius)', 
+                padding: '16px',
+                border: '1px solid var(--primary-100)',
+                boxShadow: 'var(--shadow-sm)'
+              }}>
+                <h4 style={{ 
+                  fontSize: '11px', 
+                  fontWeight: 700, 
+                  color: 'var(--primary-600)', 
+                  textTransform: 'uppercase',
+                  marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <CheckSquare className="w-3 h-3" />
+                  待办事项
+                </h4>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {currentVisit.actionItems?.map((item, idx) => (
-                    <div key={idx} className="flex items-start bg-white p-2 rounded-lg border border-slate-100">
-                      <CheckSquare className="w-4 h-4 text-indigo-600 mt-0.5 mr-2 flex-shrink-0" />
-                      <span className="text-sm text-slate-700">{item}</span>
+                    <div 
+                      key={idx} 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'flex-start', 
+                        gap: '10px',
+                        padding: '12px',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border-light)'
+                      }}
+                    >
+                      <div style={{ 
+                        width: '20px', 
+                        height: '20px', 
+                        borderRadius: '4px', 
+                        background: 'var(--primary-100)', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        color: 'var(--primary-600)',
+                        flexShrink: 0,
+                        marginTop: '2px'
+                      }}>
+                        <CheckSquare className="w-3.5 h-3.5" />
+                      </div>
+                      <span style={{ fontSize: '14px', color: 'var(--text-primary)', lineHeight: 1.5 }}>{item}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Email Generator */}
-              <div className="pt-4 border-t border-slate-200">
-                <div className="flex justify-between items-center mb-2">
-                   <h4 className="text-xs font-bold text-slate-500 uppercase">跟进邮件草稿</h4>
-                   {!isReadOnly && (
-                       <button 
-                          onClick={handleGenerateEmail}
-                          disabled={isGeneratingEmail}
-                          className="text-xs text-indigo-600 hover:underline disabled:opacity-50 flex items-center"
-                       >
-                         {isGeneratingEmail ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
-                         {isGeneratingEmail ? '起草中...' : '生成邮件'}
-                       </button>
-                   )}
+              {/* Email Generator Card */}
+              <div style={{ 
+                background: 'var(--bg-primary)', 
+                borderRadius: 'var(--radius)', 
+                padding: '16px',
+                border: '1px solid var(--primary-100)',
+                boxShadow: 'var(--shadow-sm)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h4 style={{ 
+                    fontSize: '11px', 
+                    fontWeight: 700, 
+                    color: 'var(--primary-600)', 
+                    textTransform: 'uppercase',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <Mail className="w-3 h-3" />
+                    跟进邮件草稿
+                  </h4>
+                  {!isReadOnly && (
+                    <button 
+                      onClick={handleGenerateEmail}
+                      disabled={isGeneratingEmail}
+                      style={{ 
+                        fontSize: '12px', 
+                        color: 'var(--primary-600)', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '4px',
+                        opacity: isGeneratingEmail ? 0.6 : 1,
+                        cursor: isGeneratingEmail ? 'not-allowed' : 'pointer'
+                      }}
+                      className="btn-ghost"
+                    >
+                      {isGeneratingEmail ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                      {isGeneratingEmail ? '起草中...' : '生成邮件'}
+                    </button>
+                  )}
                 </div>
                 {currentVisit.followUpDraft && (
-                  <div className="relative">
+                  <div style={{ position: 'relative' }}>
                     <textarea 
                       readOnly
-                      className="w-full h-32 text-xs bg-white p-3 rounded-lg border border-slate-100 text-slate-800 font-mono resize-none focus:outline-none"
+                      style={{ 
+                        width: '100%', 
+                        height: expandedSection === 'ai' ? '300px' : '120px', 
+                        fontSize: '13px', 
+                        background: 'var(--bg-secondary)', 
+                        padding: '12px', 
+                        borderRadius: 'var(--radius-sm)', 
+                        border: '1px solid var(--border-light)',
+                        color: 'var(--text-primary)', 
+                        fontFamily: 'monospace',
+                        resize: 'none',
+                        outline: 'none',
+                        lineHeight: 1.6
+                      }}
                       value={currentVisit.followUpDraft}
                     />
-                    <button className="absolute bottom-2 right-2 p-1.5 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">
-                       <Mail className="w-3 h-3" />
-                    </button>
+                    <CopyButton text={currentVisit.followUpDraft || ''} />
                   </div>
                 )}
               </div>

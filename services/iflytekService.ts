@@ -381,3 +381,138 @@ export class IflytekStreamingSession {
     this.queue = [];
   }
 }
+
+/**
+ * Transcribe audio file to text using iFlytek Speech-to-Text API
+ * This is for recorded audio files, not real-time streaming
+ */
+export const transcribeAudioWithIflytek = async (base64Audio: string): Promise<string> => {
+  const config = getIflytekConfig();
+  if (!config.appId || !config.apiKey || !config.apiSecret) {
+    throw new Error("科大讯飞配置不完整，请在系统设置中配置。");
+  }
+
+  // Remove data URL prefix if present
+  const cleanBase64 = base64Audio.replace(/^data:audio\/[a-z0-9]+;base64,/, "");
+  
+  // Convert base64 to binary
+  const binaryString = atob(cleanBase64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  // Convert to Int16Array (PCM 16-bit)
+  const pcmData = new Int16Array(bytes.buffer);
+
+  return new Promise((resolve, reject) => {
+    const url = getAuthUrl(config);
+    const ws = new WebSocket(url);
+    let fullText = "";
+    let isFirstFrame = true;
+
+    ws.onopen = () => {
+      // Send audio data in chunks
+      const chunkSize = 1280; // 40ms of audio at 16kHz (640 samples * 2 bytes)
+      let offset = 0;
+
+      const sendChunk = () => {
+        if (offset >= pcmData.length) {
+          // Send last frame
+          const endFrame = {
+            data: {
+              status: 2,
+              format: "audio/L16;rate=16000",
+              encoding: "raw",
+              audio: ""
+            }
+          };
+          ws.send(JSON.stringify(endFrame));
+          return;
+        }
+
+        const chunk = pcmData.slice(offset, offset + chunkSize);
+        offset += chunkSize;
+
+        // Convert Int16Array to base64
+        const chunkBytes = new Uint8Array(chunk.buffer);
+        let binary = '';
+        for (let i = 0; i < chunkBytes.length; i++) {
+          binary += String.fromCharCode(chunkBytes[i]);
+        }
+        const chunkBase64 = btoa(binary);
+
+        const frame: any = {
+          data: {
+            status: isFirstFrame ? 0 : 1,
+            format: "audio/L16;rate=16000",
+            encoding: "raw",
+            audio: chunkBase64
+          }
+        };
+
+        if (isFirstFrame) {
+          frame.common = { app_id: config.appId };
+          frame.business = {
+            language: "zh_cn",
+            domain: config.sttDomain || 'iat',
+            accent: "mandarin",
+            vad_eos: 10000,
+            ptt: 1,
+            nbest: 1,
+          };
+          isFirstFrame = false;
+        }
+
+        ws.send(JSON.stringify(frame));
+        
+        // Send next chunk after a small delay to simulate real-time
+        setTimeout(sendChunk, 40);
+      };
+
+      sendChunk();
+    };
+
+    ws.onmessage = (e) => {
+      const jsonData = JSON.parse(e.data);
+      if (jsonData.code !== 0) {
+        ws.close();
+        reject(new IflytekError(jsonData.message || `讯飞API错误 [${jsonData.code}]`, jsonData.code));
+        return;
+      }
+
+      if (jsonData.data && jsonData.data.result) {
+        const wsResult = jsonData.data.result;
+        const text = wsResult.ws.map((w: any) => w.cw.map((c: any) => c.w).join('')).join('');
+        if (text) {
+          fullText += text;
+        }
+      }
+
+      if (jsonData.data && jsonData.data.status === 2) {
+        ws.close();
+        resolve(fullText);
+      }
+    };
+
+    ws.onerror = (e) => {
+      reject(new Error("科大讯飞语音识别连接失败"));
+    };
+
+    ws.onclose = () => {
+      if (fullText) {
+        resolve(fullText);
+      } else {
+        reject(new Error("未能识别到有效语音"));
+      }
+    };
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+        reject(new Error("语音识别超时"));
+      }
+    }, 30000);
+  });
+};

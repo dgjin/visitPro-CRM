@@ -24,7 +24,11 @@ import {
   Zap,
   MapPin,
   CalendarPlus,
-  Loader2
+  Loader2,
+  Sparkles,
+  Target,
+  Clock,
+  Activity
 } from 'lucide-react';
 import { Visit, Client, ClientStatus, User, Department, Sentiment } from '../types';
 
@@ -262,62 +266,97 @@ export const Dashboard: React.FC<DashboardProps> = ({
     { name: '周日', visits: 0 },
   ];
 
-  const StatCard = ({ title, value, subtext, icon: Icon, color }: any) => (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-start justify-between">
-      <div>
-        <p className="text-slate-500 text-sm font-medium mb-1">{title}</p>
-        <h3 className="text-3xl font-bold text-slate-800">{value}</h3>
-        {subtext && <p className={`text-xs mt-2 ${subtext.includes('+') ? 'text-emerald-600' : 'text-slate-400'}`}>{subtext}</p>}
-      </div>
-      <div className={`p-3 rounded-xl ${color}`}>
-        <Icon className="w-6 h-6 text-white" />
+  // Modern Stat Card with gradient icon background
+  const StatCard = ({ title, value, subtext, icon: Icon, gradient }: any) => (
+    <div style={{ background: 'var(--bg-primary)', padding: '1.25rem', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow)', border: '1px solid var(--border)' }} className="group hover:-translate-y-0.5 transition-all duration-300">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.5rem' }}>{title}</p>
+          <h3 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.025em' }}>{value}</h3>
+          {subtext && (
+            <p style={{ fontSize: '0.75rem', marginTop: '0.5rem', fontWeight: 500, color: subtext.includes('+') ? 'var(--success-500)' : 'var(--text-tertiary)' }}>
+              {subtext.includes('+') && <span className="inline-flex items-center mr-1">
+                <TrendingUp className="w-3 h-3 mr-0.5" />
+              </span>}
+              {subtext}
+            </p>
+          )}
+        </div>
+        <div className={`w-12 h-12 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300 ${gradient}`} style={{ borderRadius: 'var(--radius-md)' }}>
+          <Icon className="w-6 h-6 text-white" />
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div className="space-y-6 relative">
+    <div style={{ background: 'var(--bg-secondary)', minHeight: '100vh', padding: '1.5rem' }} className="space-y-6 relative">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>仪表盘</h1>
+            <span style={{ padding: '0.125rem 0.625rem', background: 'var(--primary-100)', color: 'var(--primary-700)', fontSize: '0.75rem', fontWeight: 600, borderRadius: '9999px' }}>
+              Pro
+            </span>
+          </div>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.5rem' }} className="flex items-center gap-2">
+            <Sparkles style={{ color: 'var(--warning-500)' }} className="w-4 h-4" />
+            欢迎回来，{currentUser.name}！查看您的客户拜访记录概览
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div style={{ background: 'var(--bg-primary)', padding: '0.5rem 1rem', borderRadius: '9999px', boxShadow: 'var(--shadow)', border: '1px solid var(--border)' }} className="flex items-center gap-3">
+            <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: '9999px', background: 'linear-gradient(to bottom right, var(--primary-700), var(--primary-500))' }} className="flex items-center justify-center text-white font-semibold text-sm shadow-md">
+              {currentUser.name.substring(0, 1)}
+            </div>
+            <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-primary)' }}>{currentUser.name}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Mobile Smart Check-in Header (Visible mostly on mobile) */}
-      <div className="md:hidden mb-4">
-          <button 
-            onClick={handleSmartCheckIn}
-            disabled={isCheckingIn}
-            className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 text-white p-4 rounded-2xl shadow-lg flex items-center justify-center font-bold text-lg active:scale-95 transition-all"
-          >
-             {isCheckingIn ? <Loader2 className="w-6 h-6 animate-spin mr-2"/> : <MapPin className="w-6 h-6 mr-2 animate-bounce" />}
-             {isCheckingIn ? '定位匹配中...' : '到达签到'}
-          </button>
+      <div className="md:hidden mb-6">
+        <button 
+          onClick={handleSmartCheckIn}
+          disabled={isCheckingIn}
+          style={{ width: '100%', background: 'linear-gradient(to right, var(--primary-800), var(--primary-700), var(--primary-500))', color: 'white', padding: '1rem', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)' }}
+          className="flex items-center justify-center font-bold text-lg active:scale-[0.98] transition-all"
+        >
+          {isCheckingIn ? <Loader2 className="w-6 h-6 animate-spin mr-2"/> : <MapPin className="w-6 h-6 mr-2 animate-bounce" />}
+          {isCheckingIn ? '定位匹配中...' : '到达签到'}
+        </button>
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         <StatCard 
           title="客户总数" 
           value={totalClients} 
           subtext={`+${leads} 新增线索`} 
           icon={Users} 
-          color="bg-blue-500" 
+          gradient="bg-gradient-to-br from-[#1E40AF] to-[#3B82F6]" 
         />
         <StatCard 
           title="本月拜访" 
           value={visitsThisMonth} 
           subtext="环比上月 +12%" 
-          icon={TrendingUp} 
-          color="bg-indigo-500" 
+          icon={Activity} 
+          gradient="bg-gradient-to-br from-[#8B5CF6] to-[#A78BFA]" 
         />
         <StatCard 
           title="转化率" 
           value={`${conversionRate}%`} 
           subtext="线索转签约" 
-          icon={CheckCircle} 
-          color="bg-emerald-500" 
+          icon={Target} 
+          gradient="bg-gradient-to-br from-[#10B981] to-[#34D399]" 
         />
         <StatCard 
           title="风险预警" 
           value={churned} 
           subtext="需要关注" 
           icon={AlertTriangle} 
-          color="bg-amber-500" 
+          gradient="bg-gradient-to-br from-[#F59E0B] to-[#FBBF24]" 
         />
       </div>
 
@@ -325,31 +364,69 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Main Content Column */}
         <div className="lg:col-span-2 space-y-6">
             
-            {/* 1. AI Suggested Actions (New) */}
+            {/* AI Suggested Actions - Enhanced Visual Design */}
             {suggestedActions.length > 0 && (
-                <div className="bg-gradient-to-br from-indigo-50 to-white p-6 rounded-2xl shadow-sm border border-indigo-100 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-100 rounded-full blur-3xl opacity-50 -mr-10 -mt-10"></div>
-                    <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center relative z-10">
-                        <Zap className="w-5 h-5 mr-2 text-amber-500 fill-current" />
-                        今日建议 (Suggested Actions)
-                    </h3>
-                    <div className="space-y-3 relative z-10">
-                        {suggestedActions.map(action => (
-                            <div key={action.id} className="flex items-start bg-white p-3 rounded-xl border border-indigo-50 shadow-sm hover:shadow-md transition-all">
-                                <div className={`p-2 rounded-lg mr-3 flex-shrink-0 ${action.type === 'URGENT' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                                    {action.type === 'URGENT' ? <AlertTriangle className="w-5 h-5" /> : <TrendingUp className="w-5 h-5" />}
+                <div style={{ background: 'var(--bg-primary)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow)', border: '1px solid var(--border)' }} className="relative overflow-hidden">
+                  {/* Decorative gradient border top */}
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#1E40AF] via-[#8B5CF6] to-[#3B82F6]" />
+                  <div className="p-6">
+                    <div className="flex items-center gap-3 mb-5">
+                      <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: 'var(--radius-md)', background: 'linear-gradient(to bottom right, var(--primary-700), var(--primary-500))' }} className="flex items-center justify-center shadow-lg">
+                        <Zap className="w-5 h-5 text-white fill-current" />
+                      </div>
+                      <div>
+                        <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>AI 智能建议</h3>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>基于您的数据生成的个性化建议</p>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                        {suggestedActions.map((action, index) => (
+                            <div 
+                              key={action.id} 
+                              style={{ 
+                                display: 'flex', 
+                                alignItems: 'flex-start', 
+                                padding: '1rem', 
+                                borderRadius: 'var(--radius-md)', 
+                                border: `1px solid ${action.type === 'URGENT' ? 'var(--error-300)' : 'var(--success-300)'}`,
+                                background: action.type === 'URGENT' ? 'linear-gradient(to right, var(--error-50), var(--bg-primary))' : 'linear-gradient(to right, var(--success-50), var(--bg-primary))'
+                              }}
+                              className="transition-all duration-200 hover:shadow-md group"
+                            >
+                                <div style={{ 
+                                  width: '2.5rem', 
+                                  height: '2.5rem', 
+                                  borderRadius: 'var(--radius-sm)', 
+                                  marginRight: '1rem', 
+                                  flexShrink: 0, 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  justifyContent: 'center', 
+                                  boxShadow: 'var(--shadow-sm)',
+                                  background: action.type === 'URGENT' ? 'linear-gradient(to bottom right, var(--error-500), var(--error-400))' : 'linear-gradient(to bottom right, var(--success-500), var(--success-400))'
+                                }}>
+                                    {action.type === 'URGENT' ? <AlertTriangle className="w-5 h-5 text-white" /> : <TrendingUp className="w-5 h-5 text-white" />}
                                 </div>
-                                <div className="flex-1">
-                                    <div className="flex justify-between items-start">
-                                        <h4 className="font-bold text-slate-700 text-sm">{action.title}</h4>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-start gap-3">
+                                        <div className="flex items-center gap-2">
+                                          <h4 style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.875rem' }}>{action.title}</h4>
+                                          <span style={{ 
+                                            padding: '0.125rem 0.5rem', 
+                                            fontSize: '0.625rem', 
+                                            fontWeight: 700, 
+                                            borderRadius: '9999px',
+                                            background: action.type === 'URGENT' ? 'var(--error-100)' : 'var(--success-100)',
+                                            color: action.type === 'URGENT' ? 'var(--error-600)' : 'var(--success-600)'
+                                          }}>
+                                            {action.type === 'URGENT' ? '紧急' : '机会'}
+                                          </span>
+                                        </div>
                                         <button 
                                             onClick={() => {
-                                                // Handle Execution Logic
                                                 if (action.id.startsWith('todo') && action.visitId) {
-                                                    // For tasks, view the original visit
                                                     onViewVisit && onViewVisit(action.visitId);
                                                 } else if (onCheckIn && action.clientId) {
-                                                    // For opportunities or churn recovery, start a new visit draft
                                                     onCheckIn({
                                                         clientId: action.clientId,
                                                         clientName: action.clientName,
@@ -362,50 +439,79 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                                     onNavigate('VISITS');
                                                 }
                                             }}
-                                            className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700 transition-colors"
+                                            style={{ 
+                                              flexShrink: 0, 
+                                              fontSize: '0.75rem', 
+                                              background: 'var(--primary-700)', 
+                                              color: 'white', 
+                                              padding: '0.375rem 1rem', 
+                                              borderRadius: 'var(--radius-sm)', 
+                                              fontWeight: 500 
+                                            }}
+                                            className="hover:shadow-md active:scale-95 transition-all"
                                         >
                                             执行
                                         </button>
                                     </div>
-                                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">{action.desc}</p>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.5rem', lineHeight: 1.625 }}>{action.desc}</p>
                                 </div>
                             </div>
                         ))}
                     </div>
+                  </div>
                 </div>
             )}
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            {/* Activity Chart - Modern Design */}
+            <div style={{ background: 'var(--bg-primary)', padding: '1.5rem', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow)', border: '1px solid var(--border)' }}>
                 <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-bold text-slate-800">每周活动趋势</h3>
-                    <select className="text-sm border-none bg-slate-50 rounded-lg px-3 py-1 text-slate-600">
-                    <option>本周</option>
-                    <option>上周</option>
+                    <div className="flex items-center gap-3">
+                      <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: 'var(--radius-md)', background: 'rgba(30, 64, 175, 0.1)' }} className="flex items-center justify-center">
+                        <Activity style={{ color: 'var(--primary-700)' }} className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>每周活动趋势</h3>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>过去7天的拜访活动统计</p>
+                      </div>
+                    </div>
+                    <select style={{ fontSize: '0.875rem', border: '1px solid var(--border)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', padding: '0.5rem 1rem', color: 'var(--text-primary)' }} className="focus:outline-none focus:ring-2 focus:ring-[var(--primary-700)] focus:border-transparent transition-all">
+                      <option>本周</option>
+                      <option>上周</option>
                     </select>
                 </div>
                 <div className="h-64 w-full">
                     <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={activityData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-light)" />
                         <XAxis 
                         dataKey="name" 
                         axisLine={false} 
                         tickLine={false} 
-                        tick={{ fill: '#64748b', fontSize: 12 }} 
+                        tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} 
                         dy={10}
                         />
                         <YAxis 
                         axisLine={false} 
                         tickLine={false} 
-                        tick={{ fill: '#64748b', fontSize: 12 }} 
+                        tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} 
                         />
                         <Tooltip 
-                        cursor={{ fill: '#f1f5f9' }}
-                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        cursor={{ fill: 'var(--bg-secondary)' }}
+                        contentStyle={{ 
+                          borderRadius: 'var(--radius-md)', 
+                          border: '1px solid var(--border)', 
+                          boxShadow: 'var(--shadow-lg)',
+                          padding: '12px',
+                          background: 'var(--bg-primary)'
+                        }}
                         />
-                        <Bar dataKey="visits" radius={[4, 4, 0, 0]} barSize={32}>
+                        <Bar dataKey="visits" radius={[8, 8, 0, 0]} barSize={32}>
                         {activityData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={index === 3 ? '#4f46e5' : '#cbd5e1'} />
+                            <Cell 
+                              key={`cell-${index}`} 
+                              fill={index === 3 ? 'var(--primary-700)' : 'var(--primary-300)'}
+                              className="transition-all duration-300 hover:opacity-80"
+                            />
                         ))}
                         </Bar>
                     </BarChart>
@@ -413,78 +519,144 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
             </div>
 
-            {/* Visit Stats */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-3">
-                    <h3 className="text-lg font-bold text-slate-800 flex items-center">
-                        <Trophy className="w-5 h-5 mr-2 text-amber-500" />
-                        {rankingDimension === 'USER' ? '个人' : rankingDimension === 'INSTITUTION' ? '机构' : '团队'}拜访排行
-                    </h3>
-                    
-                    <div className="flex items-center space-x-1 bg-slate-100 p-1 rounded-lg">
-                        <button 
-                            onClick={() => setRankingDimension('USER')}
-                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${rankingDimension === 'USER' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            人员
-                        </button>
-                        <button 
-                            onClick={() => setRankingDimension('INSTITUTION')}
-                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${rankingDimension === 'INSTITUTION' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            机构
-                        </button>
-                        <button 
-                            onClick={() => setRankingDimension('TEAM')}
-                            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${rankingDimension === 'TEAM' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            团队
-                        </button>
+            {/* Visit Stats / Ranking - Enhanced List Design */}
+            <div style={{ background: 'var(--bg-primary)', padding: '1.5rem', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow)', border: '1px solid var(--border)' }}>
+                <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+                    <div className="flex items-center gap-3">
+                      <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: 'var(--radius-md)', background: 'rgba(245, 158, 11, 0.1)' }} className="flex items-center justify-center">
+                        <Trophy style={{ color: 'var(--warning-500)' }} className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {rankingDimension === 'USER' ? '个人' : rankingDimension === 'INSTITUTION' ? '机构' : '团队'}拜访排行
+                        </h3>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>实时更新的拜访数据统计</p>
+                      </div>
                     </div>
+                    
+                    <div className="flex items-center gap-3">
+                      <div style={{ background: 'var(--bg-secondary)' }} className="flex items-center space-x-1 p-1 rounded-xl">
+                          <button 
+                              onClick={() => setRankingDimension('USER')}
+                              style={{ 
+                                padding: '0.375rem 1rem', 
+                                fontSize: '0.75rem', 
+                                fontWeight: 600, 
+                                borderRadius: 'var(--radius-sm)',
+                                background: rankingDimension === 'USER' ? 'var(--bg-primary)' : 'transparent',
+                                color: rankingDimension === 'USER' ? 'var(--primary-700)' : 'var(--text-secondary)',
+                                boxShadow: rankingDimension === 'USER' ? 'var(--shadow-sm)' : 'none'
+                              }}
+                              className="transition-all hover:text-[var(--text-primary)]"
+                          >
+                              人员
+                          </button>
+                          <button 
+                              onClick={() => setRankingDimension('INSTITUTION')}
+                              style={{ 
+                                padding: '0.375rem 1rem', 
+                                fontSize: '0.75rem', 
+                                fontWeight: 600, 
+                                borderRadius: 'var(--radius-sm)',
+                                background: rankingDimension === 'INSTITUTION' ? 'var(--bg-primary)' : 'transparent',
+                                color: rankingDimension === 'INSTITUTION' ? 'var(--primary-700)' : 'var(--text-secondary)',
+                                boxShadow: rankingDimension === 'INSTITUTION' ? 'var(--shadow-sm)' : 'none'
+                              }}
+                              className="transition-all hover:text-[var(--text-primary)]"
+                          >
+                              机构
+                          </button>
+                          <button 
+                              onClick={() => setRankingDimension('TEAM')}
+                              style={{ 
+                                padding: '0.375rem 1rem', 
+                                fontSize: '0.75rem', 
+                                fontWeight: 600, 
+                                borderRadius: 'var(--radius-sm)',
+                                background: rankingDimension === 'TEAM' ? 'var(--bg-primary)' : 'transparent',
+                                color: rankingDimension === 'TEAM' ? 'var(--primary-700)' : 'var(--text-secondary)',
+                                boxShadow: rankingDimension === 'TEAM' ? 'var(--shadow-sm)' : 'none'
+                              }}
+                              className="transition-all hover:text-[var(--text-primary)]"
+                          >
+                              团队
+                          </button>
+                      </div>
 
-                    {statsData.length > 10 && (
-                        <button 
-                            onClick={() => setIsStatsModalOpen(true)}
-                            className="hidden md:flex text-sm text-indigo-600 hover:text-indigo-800 font-medium items-center ml-auto"
-                        >
-                            查看全部 <ChevronRight className="w-4 h-4" />
-                        </button>
-                    )}
+                      {statsData.length > 10 && (
+                          <button 
+                              onClick={() => setIsStatsModalOpen(true)}
+                              style={{ color: 'var(--primary-700)' }}
+                              className="hidden md:flex text-sm hover:text-[var(--primary-800)] font-medium items-center px-3 py-1.5 rounded-lg hover:bg-[var(--primary-50)] transition-all"
+                          >
+                              查看全部 <ChevronRight className="w-4 h-4" />
+                          </button>
+                      )}
+                    </div>
                 </div>
                 
                 <div className="space-y-3">
                     {topStats.map((item, index) => (
-                        <div key={item.id} className="flex items-center">
-                            <div className={`w-6 text-center text-sm font-bold mr-2 ${index < 3 ? 'text-amber-500' : 'text-slate-400'}`}>
+                        <div 
+                          key={item.id} 
+                          style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)' }}
+                          className="flex items-center hover:bg-[var(--bg-secondary)] transition-colors group"
+                        >
+                            <div style={{ 
+                              width: '2rem', 
+                              height: '2rem', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              borderRadius: 'var(--radius-sm)', 
+                              fontSize: '0.875rem', 
+                              fontWeight: 700, 
+                              marginRight: '1rem', 
+                              boxShadow: 'var(--shadow-sm)',
+                              background: index === 0 ? 'linear-gradient(to bottom right, var(--warning-500), var(--warning-400))' : 
+                                         index === 1 ? 'linear-gradient(to bottom right, var(--gray-500), var(--gray-400))' : 
+                                         index === 2 ? 'linear-gradient(to bottom right, var(--orange-500), var(--orange-400))' : 
+                                         'var(--bg-secondary)',
+                              color: index < 3 ? 'white' : 'var(--text-secondary)'
+                            }}>
                                 {index + 1}
                             </div>
                             <div className="flex-1">
-                                <div className="flex justify-between text-sm mb-1">
-                                    <span className="font-medium text-slate-700 flex items-center">
-                                       {rankingDimension === 'USER' && <UserIcon className="w-3 h-3 mr-1.5 text-slate-400"/>}
-                                       {rankingDimension === 'INSTITUTION' && <Building2 className="w-3 h-3 mr-1.5 text-slate-400"/>}
-                                       {rankingDimension === 'TEAM' && <Network className="w-3 h-3 mr-1.5 text-slate-400"/>}
+                                <div className="flex justify-between text-sm mb-2">
+                                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="flex items-center">
+                                       {rankingDimension === 'USER' && <UserIcon style={{ color: 'var(--text-tertiary)' }} className="w-4 h-4 mr-2"/>}
+                                       {rankingDimension === 'INSTITUTION' && <Building2 style={{ color: 'var(--text-tertiary)' }} className="w-4 h-4 mr-2"/>}
+                                       {rankingDimension === 'TEAM' && <Network style={{ color: 'var(--text-tertiary)' }} className="w-4 h-4 mr-2"/>}
                                        {item.name}
                                     </span>
-                                    <span className="font-bold text-indigo-600">{item.count}</span>
+                                    <span style={{ fontWeight: 700, color: 'var(--primary-700)' }}>{item.count}</span>
                                 </div>
-                                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div style={{ height: '0.5rem', background: 'var(--bg-secondary)', borderRadius: '9999px', overflow: 'hidden' }}>
                                     <div 
-                                        className={`h-full rounded-full ${index === 0 ? 'bg-amber-400' : index === 1 ? 'bg-slate-400' : index === 2 ? 'bg-orange-400' : 'bg-indigo-400'}`} 
-                                        style={{ width: `${(item.count / (maxCount || 1)) * 100}%` }}
+                                        style={{ 
+                                          height: '100%', 
+                                          borderRadius: '9999px', 
+                                          width: `${(item.count / (maxCount || 1)) * 100}%`,
+                                          background: index === 0 ? 'linear-gradient(to right, var(--warning-500), var(--warning-400))' : 
+                                                      index === 1 ? 'linear-gradient(to right, var(--gray-500), var(--gray-400))' : 
+                                                      index === 2 ? 'linear-gradient(to right, var(--orange-500), var(--orange-400))' : 
+                                                      'linear-gradient(to right, var(--primary-700), var(--primary-500))'
+                                        }}
+                                        className="transition-all duration-500"
                                     ></div>
                                 </div>
                             </div>
                         </div>
                     ))}
                     {topStats.length === 0 && (
-                        <div className="text-center text-slate-400 py-4 text-sm">暂无数据</div>
+                        <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', padding: '2rem 0', fontSize: '0.875rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)' }}>暂无数据</div>
                     )}
                     
                     {statsData.length > 10 && (
                          <button 
                             onClick={() => setIsStatsModalOpen(true)}
-                            className="md:hidden mt-2 w-full text-center text-sm text-indigo-600 hover:text-indigo-800 font-medium py-2 bg-slate-50 rounded-lg"
+                            style={{ color: 'var(--primary-700)', marginTop: '0.5rem' }}
+                            className="md:hidden w-full text-center text-sm hover:text-[var(--primary-800)] font-medium py-3 bg-[var(--bg-secondary)] rounded-xl hover:bg-[var(--primary-50)] transition-all"
                         >
                             查看全部
                         </button>
@@ -495,42 +667,74 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         {/* Right Sidebar: Quick Actions / Recent Visits */}
         <div className="flex flex-col gap-6">
-            {/* Desktop Check-in Button */}
+            {/* Desktop Check-in Button - Enhanced Gradient */}
             <button 
                 onClick={handleSmartCheckIn}
                 disabled={isCheckingIn}
-                className="hidden md:flex w-full bg-gradient-to-r from-indigo-600 to-blue-600 text-white p-4 rounded-2xl shadow-lg items-center justify-center font-bold text-lg hover:shadow-xl hover:scale-105 transition-all active:scale-95"
+                style={{ 
+                  background: 'linear-gradient(to right, var(--primary-800), var(--primary-700), var(--primary-600))', 
+                  color: 'white', 
+                  padding: '1.25rem', 
+                  borderRadius: 'var(--radius-md)', 
+                  boxShadow: 'var(--shadow-lg)'
+                }}
+                className="hidden md:flex w-full items-center justify-center font-bold text-lg hover:shadow-[0_8px_30px_rgba(30,64,175,0.5)] hover:scale-[1.02] transition-all active:scale-[0.98] group relative overflow-hidden"
             >
+                {/* Shimmer effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
                 {isCheckingIn ? <Loader2 className="w-6 h-6 animate-spin mr-2"/> : <MapPin className="w-6 h-6 mr-2 animate-bounce" />}
                 {isCheckingIn ? '定位匹配中...' : '到达签到'}
             </button>
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col h-fit">
-                <h3 className="text-lg font-bold text-slate-800 mb-4">近期拜访</h3>
-                <div className="flex-1 overflow-y-auto space-y-4 max-h-[500px] pr-2">
+            {/* Recent Visits - Compact Design */}
+            <div style={{ background: 'var(--bg-primary)', padding: '1.25rem', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow)', border: '1px solid var(--border)' }} className="flex flex-col h-fit">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div style={{ width: '2.25rem', height: '2.25rem', borderRadius: 'var(--radius-md)', background: 'rgba(16, 185, 129, 0.1)' }} className="flex items-center justify-center">
+                      <Clock style={{ color: 'var(--success-500)' }} className="w-4 h-4" />
+                    </div>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>近期拜访</h3>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-2 max-h-[420px] pr-1 custom-scrollbar">
                     {visits.slice(0, 8).map((visit) => (
                     <div 
                         key={visit.id} 
                         onClick={() => onViewVisit && onViewVisit(visit.id)}
-                        className="group p-3 hover:bg-slate-50 rounded-xl border border-slate-100 transition-all cursor-pointer"
+                        style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', border: '1px solid transparent' }}
+                        className="group hover:bg-[var(--bg-secondary)] hover:border-[var(--border)] transition-all cursor-pointer"
                     >
-                        <div className="flex justify-between items-start mb-1">
-                        <span className="font-semibold text-sm text-slate-800 truncate pr-2 group-hover:text-indigo-600 transition-colors">{visit.clientName}</span>
-                        <span className="text-xs text-slate-400 whitespace-nowrap">{new Date(visit.date).toLocaleDateString()}</span>
+                        <div className="flex justify-between items-start mb-1.5">
+                        <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }} className="truncate pr-2 group-hover:text-[var(--primary-700)] transition-colors">{visit.clientName}</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', whiteSpace: 'nowrap', background: 'var(--bg-secondary)', padding: '0.125rem 0.5rem', borderRadius: '9999px' }}>{new Date(visit.date).toLocaleDateString()}</span>
                         </div>
-                        <div className="flex items-center text-xs text-slate-500 mb-1">
-                            <UserIcon className="w-3 h-3 mr-1" /> {visit.ownerName || 'Unknown'}
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }} className="flex items-center mb-1.5">
+                            <UserIcon className="w-3.5 h-3.5 mr-1.5" /> 
+                            <span style={{ fontWeight: 500 }}>{visit.ownerName || 'Unknown'}</span>
                         </div>
-                        <p className="text-xs text-slate-500 line-clamp-2">{visit.summary || visit.content}</p>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }} className="line-clamp-2 leading-relaxed">{visit.summary || visit.content}</p>
                     </div>
                     ))}
                     {visits.length === 0 && (
-                    <div className="text-center text-slate-400 text-sm py-8">暂无近期拜访</div>
+                    <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.875rem', padding: '2rem 0', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)' }}>
+                      <Clock style={{ opacity: 0.5 }} className="w-8 h-8 mx-auto mb-2" />
+                      暂无近期拜访
+                    </div>
                     )}
                 </div>
                 <button 
                     onClick={() => onNavigate('VISITS')}
-                    className="mt-4 w-full py-2 flex items-center justify-center text-sm font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                    style={{ 
+                      marginTop: '1rem', 
+                      width: '100%', 
+                      padding: '0.625rem 0', 
+                      fontSize: '0.875rem', 
+                      fontWeight: 600, 
+                      color: 'var(--primary-700)', 
+                      background: 'var(--primary-50)', 
+                      borderRadius: 'var(--radius-md)' 
+                    }}
+                    className="flex items-center justify-center hover:bg-[var(--primary-100)] transition-all"
                 >
                     查看全部 <ArrowRight className="w-4 h-4 ml-1" />
                 </button>
@@ -538,42 +742,72 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Full Stats Modal */}
+      {/* Full Stats Modal - Modern Design */}
       {isStatsModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl animate-scale-in">
-                <div className="flex justify-between items-center p-4 border-b border-slate-100">
-                    <h3 className="text-lg font-bold text-slate-800">
-                        {rankingDimension === 'USER' ? '个人' : rankingDimension === 'INSTITUTION' ? '机构' : '团队'}拜访统计
-                    </h3>
-                    <button onClick={() => setIsStatsModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+        <div style={{ background: 'rgba(17, 24, 39, 0.6)', backdropFilter: 'blur(4px)' }} className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div style={{ background: 'var(--bg-primary)', borderRadius: 'var(--radius-md)', width: '100%', maxWidth: '28rem', maxHeight: '80vh', boxShadow: 'var(--shadow-2xl)' }} className="flex flex-col animate-[scale-in_0.2s_ease-out]">
+                <div style={{ padding: '1.25rem', borderBottom: '1px solid var(--border)' }} className="flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                      <div style={{ width: '2.5rem', height: '2.5rem', borderRadius: 'var(--radius-md)', background: 'rgba(30, 64, 175, 0.1)' }} className="flex items-center justify-center">
+                        <Trophy style={{ color: 'var(--primary-700)' }} className="w-5 h-5" />
+                      </div>
+                      <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {rankingDimension === 'USER' ? '个人' : rankingDimension === 'INSTITUTION' ? '机构' : '团队'}拜访统计
+                      </h3>
+                    </div>
+                    <button 
+                      onClick={() => setIsStatsModalOpen(false)} 
+                      style={{ width: '2rem', height: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 'var(--radius-sm)', color: 'var(--text-tertiary)' }}
+                      className="hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-all"
+                    >
                         <X className="w-5 h-5" />
                     </button>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div className="flex-1 overflow-y-auto p-5 space-y-2">
                     {statsData.map((item, index) => (
-                        <div key={item.id} className="flex items-center p-2 hover:bg-slate-50 rounded-lg border border-transparent hover:border-slate-100">
-                            <div className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-bold mr-3 ${
-                                index === 0 ? 'bg-amber-100 text-amber-600' : 
-                                index === 1 ? 'bg-slate-100 text-slate-600' : 
-                                index === 2 ? 'bg-orange-100 text-orange-600' : 'bg-slate-50 text-slate-500'
-                            }`}>
+                        <div 
+                          key={item.id} 
+                          style={{ padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid transparent' }}
+                          className="flex items-center hover:bg-[var(--bg-secondary)] hover:border-[var(--border)] transition-all"
+                        >
+                            <div style={{ 
+                              width: '2.25rem', 
+                              height: '2.25rem', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              borderRadius: 'var(--radius-sm)', 
+                              fontSize: '0.875rem', 
+                              fontWeight: 700, 
+                              marginRight: '1rem', 
+                              boxShadow: 'var(--shadow-sm)',
+                              background: index === 0 ? 'linear-gradient(to bottom right, var(--warning-500), var(--warning-400))' : 
+                                         index === 1 ? 'linear-gradient(to bottom right, var(--gray-500), var(--gray-400))' : 
+                                         index === 2 ? 'linear-gradient(to bottom right, var(--orange-500), var(--orange-400))' : 
+                                         'var(--bg-secondary)',
+                              color: index < 3 ? 'white' : 'var(--text-secondary)'
+                            }}>
                                 {index + 1}
                             </div>
                             <div className="flex-1">
-                                <div className="flex justify-between text-sm mb-1">
-                                    <span className="font-medium text-slate-800 flex items-center">
-                                       {rankingDimension === 'USER' && <UserIcon className="w-3 h-3 mr-1.5 text-slate-400"/>}
-                                       {rankingDimension === 'INSTITUTION' && <Building2 className="w-3 h-3 mr-1.5 text-slate-400"/>}
-                                       {rankingDimension === 'TEAM' && <Network className="w-3 h-3 mr-1.5 text-slate-400"/>}
+                                <div className="flex justify-between text-sm mb-2">
+                                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="flex items-center">
+                                       {rankingDimension === 'USER' && <UserIcon style={{ color: 'var(--text-tertiary)' }} className="w-4 h-4 mr-2"/>}
+                                       {rankingDimension === 'INSTITUTION' && <Building2 style={{ color: 'var(--text-tertiary)' }} className="w-4 h-4 mr-2"/>}
+                                       {rankingDimension === 'TEAM' && <Network style={{ color: 'var(--text-tertiary)' }} className="w-4 h-4 mr-2"/>}
                                        {item.name}
                                     </span>
-                                    <span className="font-bold text-indigo-600">{item.count}</span>
+                                    <span style={{ fontWeight: 700, color: 'var(--primary-700)' }}>{item.count}</span>
                                 </div>
-                                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div style={{ height: '0.375rem', background: 'var(--bg-secondary)', borderRadius: '9999px', overflow: 'hidden' }}>
                                     <div 
-                                        className="h-full bg-indigo-500 rounded-full" 
-                                        style={{ width: `${(item.count / (maxCount || 1)) * 100}%` }}
+                                        style={{ 
+                                          height: '100%', 
+                                          background: 'linear-gradient(to right, var(--primary-700), var(--primary-500))', 
+                                          borderRadius: '9999px',
+                                          width: `${(item.count / (maxCount || 1)) * 100}%`
+                                        }}
+                                        className="transition-all duration-500"
                                     ></div>
                                 </div>
                             </div>

@@ -19,7 +19,9 @@ import {
   Square as SquareIcon,
   Download,
   ArrowRight,
-  Tag
+  Tag,
+  Shield,
+  Filter
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -56,7 +58,7 @@ const NATIONAL_STANDARD_INDUSTRIES = [
   "国际组织"
 ];
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 const ITEMS_PER_PAGE = 10;
 
 interface ClientManagerProps {
@@ -76,8 +78,8 @@ const EquityStructureMap = ({
   subsidiaries,
   onSelectShareholder,
   onSelectSubsidiary,
-  selectedType, // 'shareholder' | 'subsidiary' | null
-  selectedIndex, // number | null
+  selectedType,
+  selectedIndex,
   readOnly = false
 }: { 
   clientName: string; 
@@ -94,12 +96,8 @@ const EquityStructureMap = ({
   const cx = width / 2;
   const cy = height / 2;
   
-  // Helper to distribute nodes on an arc
-  // For shareholders (Top): Angle -PI to 0
-  // For subsidiaries (Bottom): Angle 0 to PI
   const calculatePositions = (count: number, radius: number, isTop: boolean) => {
     if (count === 0) return [];
-    // Limit arc spread based on count to avoid too wide spread for few nodes
     const spread = Math.min(Math.PI * 0.8, count * (Math.PI / 4)); 
     const startAngle = isTop ? -Math.PI / 2 - spread / 2 : Math.PI / 2 - spread / 2;
     const step = spread / (count > 1 ? count - 1 : 1);
@@ -139,9 +137,9 @@ const EquityStructureMap = ({
             <line 
                key={`line-sh-${i}`}
                x1={pos.x} y1={pos.y} x2={cx} y2={cy}
-               stroke={isSelected ? "#6366f1" : "#cbd5e1"}
+               stroke={isSelected ? "var(--primary-500)" : "var(--border)"}
                strokeWidth={isSelected ? "2" : "1"}
-               markerEnd="url(#arrowhead)" // Arrow points to Client (Center)
+               markerEnd="url(#arrowhead)"
             />
          );
       })}
@@ -153,9 +151,9 @@ const EquityStructureMap = ({
             <line 
                key={`line-sub-${i}`}
                x1={cx} y1={cy} x2={pos.x} y2={pos.y}
-               stroke={isSelected ? "#10b981" : "#cbd5e1"}
+               stroke={isSelected ? "var(--success)" : "var(--border)"}
                strokeWidth={isSelected ? "2" : "1"}
-               markerEnd="url(#arrowhead)" // Arrow points to Subsidiary
+               markerEnd="url(#arrowhead)"
             />
          );
       })}
@@ -164,10 +162,10 @@ const EquityStructureMap = ({
 
       {/* Center Node (Client) */}
       <g filter="url(#shadow)">
-        <rect x={cx - 60} y={cy - 25} width="120" height="50" rx="25" fill="white" stroke="#4f46e5" strokeWidth="3" />
+        <rect x={cx - 60} y={cy - 25} width="120" height="50" rx="25" fill="white" stroke="var(--primary-600)" strokeWidth="3" />
         <foreignObject x={cx - 55} y={cy - 20} width="110" height="40">
            <div className="flex flex-col items-center justify-center h-full text-center">
-             <div className="text-[10px] font-bold text-slate-800 leading-tight line-clamp-2">{clientName}</div>
+             <div className="text-[10px] font-bold text-[var(--text-primary)] leading-tight line-clamp-2">{clientName}</div>
            </div>
         </foreignObject>
       </g>
@@ -187,16 +185,16 @@ const EquityStructureMap = ({
             >
                <circle 
                   cx={pos.x} cy={pos.y} r="30" 
-                  fill={isInst ? (isSelected ? '#e0f2fe' : '#f0f9ff') : (isSelected ? '#ffe4e6' : '#fff1f2')}
-                  stroke={isInst ? '#0ea5e9' : '#f43f5e'}
+                  fill={isInst ? (isSelected ? 'var(--primary-100)' : 'var(--primary-50)') : (isSelected ? '#ffe4e6' : '#fff1f2')}
+                  stroke={isInst ? 'var(--primary-500)' : '#f43f5e'}
                   strokeWidth={isSelected ? "3" : "1.5"}
                />
                <foreignObject x={pos.x - 28} y={pos.y - 28} width="56" height="56" className="pointer-events-none">
                  <div className="flex flex-col items-center justify-center h-full">
-                    <div className="text-[9px] font-bold text-slate-700 text-center leading-tight line-clamp-2 w-full mb-0.5">
+                    <div className="text-[9px] font-bold text-[var(--text-primary)] text-center leading-tight line-clamp-2 w-full mb-0.5">
                        {s.name}
                     </div>
-                    <div className="text-[9px] text-slate-500 font-mono bg-white/50 px-1 rounded">
+                    <div className="text-[9px] text-[var(--text-secondary)] font-mono bg-white/50 px-1 rounded">
                        {s.percentage}%
                     </div>
                  </div>
@@ -219,8 +217,8 @@ const EquityStructureMap = ({
             >
                <rect 
                   x={pos.x - 40} y={pos.y - 20} width="80" height="40" rx="8"
-                  fill={isSelected ? '#d1fae5' : '#ecfdf5'}
-                  stroke="#10b981"
+                  fill={isSelected ? 'var(--success-light)' : '#ecfdf5'}
+                  stroke="var(--success)"
                   strokeWidth={isSelected ? "2.5" : "1.5"}
                />
                <foreignObject x={pos.x - 38} y={pos.y - 18} width="76" height="36" className="pointer-events-none">
@@ -238,17 +236,33 @@ const EquityStructureMap = ({
       })}
 
       {/* Legends/Labels */}
-      <text x={20} y={30} className="text-xs fill-slate-400 font-bold uppercase">股东 (上游)</text>
-      <text x={20} y={height - 20} className="text-xs fill-slate-400 font-bold uppercase">对外投资 (下游)</text>
+      <text x={20} y={30} className="text-xs fill-[var(--text-tertiary)] font-bold uppercase">股东 (上游)</text>
+      <text x={20} y={height - 20} className="text-xs fill-[var(--text-tertiary)] font-bold uppercase">对外投资 (下游)</text>
 
       {/* Empty State Text */}
       {shareholders.length === 0 && subsidiaries.length === 0 && (
-         <text x={cx} y={cy + 60} textAnchor="middle" className="text-sm fill-slate-400">
+         <text x={cx} y={cy + 60} textAnchor="middle" className="text-sm fill-[var(--text-tertiary)]">
            暂无股权数据
          </text>
       )}
     </svg>
   );
+};
+
+// Helper function to get status badge class
+const getStatusBadgeClass = (status: ClientStatus) => {
+  switch (status) {
+    case ClientStatus.Active:
+      return 'badge-success';
+    case ClientStatus.Lead:
+      return 'badge-info';
+    case ClientStatus.Churned:
+      return 'badge-danger';
+    case ClientStatus.Onboarding:
+      return 'badge-warning';
+    default:
+      return 'badge-info';
+  }
 };
 
 export const ClientManager: React.FC<ClientManagerProps> = ({ 
@@ -300,7 +314,6 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
     if (initialSearchTerm !== undefined) {
       setSearchTerm(initialSearchTerm);
       if (initialSearchTerm) {
-          // If searching, close details to show results
           setSelectedClient(null); 
       }
     }
@@ -315,10 +328,10 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
 
   // Permission Logic
   const canEdit = (client: Client | null) => {
-      if (!client) return true; // New client
+      if (!client) return true;
       if (currentUser?.role === '管理员') return true;
       if (client.ownerId && currentUser?.id === client.ownerId) return true;
-      return false; // Read only for others
+      return false;
   };
 
   const isReadOnly = selectedClient ? !canEdit(selectedClient) : false;
@@ -359,7 +372,6 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       setClients(prev => prev.filter(c => !selectedIds.has(c.id)));
       setSelectedIds(new Set());
       
-      // Execute deletions in background
       for (const id of idsToDelete) {
           await deleteClient(id);
       }
@@ -368,7 +380,6 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
   const handleBatchStatus = (status: ClientStatus) => {
       setClients(prev => prev.map(c => {
           if (selectedIds.has(c.id)) {
-              // Trigger background update (async, no await)
               upsertClient({ ...c, status });
               return { ...c, status };
           }
@@ -403,15 +414,15 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       const profile = await generateClientProfile(selectedClient.name, selectedClient.industry, selectedClient.region, selectedAiModel);
       setSelectedClient(prev => prev ? {
         ...prev,
-        equityStructure: profile.equity, // Array of Shareholders
-        subsidiaries: profile.subsidiaries, // Array of Subsidiaries
+        equityStructure: profile.equity,
+        subsidiaries: profile.subsidiaries,
         financialAnalysis: profile.financials,
         supplyChainInfo: profile.supplyChain,
         tags: profile.tags || [],
       } : null);
-      setVisualMode('MAP'); // Switch to map view to see result
-    } catch (e) {
-      alert("生成画像失败，请检查控制台。");
+      setVisualMode('MAP');
+    } catch (e: any) {
+      alert(e.message || "生成画像失败，请检查AI配置和网络连接。");
     } finally {
       setIsProfileLoading(false);
     }
@@ -434,7 +445,6 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       ownerId: currentUser?.id,
       ownerName: currentUser?.name || "未知用户"
     };
-    // Don't add to main list yet, just open modal
     setSelectedClient(newClient); 
     setActiveTab('BASIC');
   };
@@ -619,52 +629,57 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
        {/* Header */}
        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
          <div className="flex items-center">
-            <Users className="w-6 h-6 mr-3 text-indigo-600" />
-            <h2 className="text-2xl font-bold text-slate-800">客户管理</h2>
+            <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center mr-3 shadow-md">
+              <Users className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-[var(--text-primary)]">客户管理</h2>
+              <p className="text-xs text-[var(--text-tertiary)] mt-0.5">共 {clients.length} 个客户</p>
+            </div>
          </div>
-         <div className="flex gap-4">
+         <div className="flex gap-3">
             <div className="relative">
-               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] w-4 h-4" />
                <input 
                   type="text" 
                   placeholder="搜索客户..." 
-                  className="pl-9 pr-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-64"
+                  className="input pl-10 pr-4 py-2.5 text-sm w-64"
                   value={searchTerm}
                   onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                />
             </div>
             <button 
                onClick={handleAddMockClient}
-               className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl flex items-center font-medium shadow-sm text-sm"
+               className="btn btn-primary"
             >
-               <Plus className="w-4 h-4 mr-2" />
+               <Plus className="w-4 h-4" />
                新建客户
             </button>
          </div>
        </div>
 
        {/* Client Table List View */}
-       <div className="flex-1 overflow-hidden bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col">
+       <div className="card flex-1 overflow-hidden flex flex-col">
           <div className="flex-1 overflow-y-auto">
-             <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10">
+             <table className="table">
+                <thead>
                    <tr>
-                      <th className="px-4 py-4 w-12">
-                          <button onClick={handleSelectAll} className="flex items-center justify-center text-slate-400 hover:text-indigo-600">
+                      <th className="w-12">
+                          <button onClick={handleSelectAll} className="flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--primary-600)] transition-colors">
                               {selectedIds.size > 0 && selectedIds.size === paginatedClients.length 
-                                  ? <CheckSquare className="w-5 h-5 text-indigo-600" /> 
+                                  ? <CheckSquare className="w-5 h-5 text-[var(--primary-600)]" /> 
                                   : <SquareIcon className="w-5 h-5" />}
                           </button>
                       </th>
-                      <th className="px-6 py-4 font-semibold text-slate-600">客户名称</th>
-                      <th className="px-6 py-4 font-semibold text-slate-600">行业/地区</th>
-                      <th className="px-6 py-4 font-semibold text-slate-600">主要联系人</th>
-                      <th className="px-6 py-4 font-semibold text-slate-600">状态</th>
-                      <th className="px-6 py-4 font-semibold text-slate-600">负责人</th>
-                      <th className="px-6 py-4 font-semibold text-slate-600 text-right">操作</th>
+                      <th>客户名称</th>
+                      <th>行业/地区</th>
+                      <th>主要联系人</th>
+                      <th>状态</th>
+                      <th>负责人</th>
+                      <th className="text-right">操作</th>
                    </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-50">
+                <tbody>
                    {paginatedClients.map(client => {
                       const firstContact = client.contacts && client.contacts.length > 0 ? client.contacts[0] : null;
                       const hasPermission = canEdit(client);
@@ -673,62 +688,57 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                          <tr 
                            key={client.id} 
                            onClick={() => { setSelectedClient(client); setActiveTab('BASIC'); }}
-                           className={`transition-colors cursor-pointer group ${isSelected ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}
+                           className={`cursor-pointer ${isSelected ? 'bg-[var(--primary-50)]' : ''}`}
                          >
-                            <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                                <button onClick={() => handleSelectOne(client.id)} className="flex items-center justify-center text-slate-400 hover:text-indigo-600">
-                                    {isSelected ? <CheckSquare className="w-5 h-5 text-indigo-600" /> : <SquareIcon className="w-5 h-5" />}
+                            <td onClick={(e) => e.stopPropagation()}>
+                                <button onClick={() => handleSelectOne(client.id)} className="flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--primary-600)] transition-colors">
+                                    {isSelected ? <CheckSquare className="w-5 h-5 text-[var(--primary-600)]" /> : <SquareIcon className="w-5 h-5" />}
                                 </button>
                             </td>
-                            <td className="px-6 py-4">
+                            <td>
                                <div className="flex items-center">
-                                  <div className={`w-9 h-9 rounded-lg flex-shrink-0 flex items-center justify-center text-white font-bold text-sm mr-3 ${
-                                     client.status === ClientStatus.Active ? 'bg-indigo-50' : client.status === ClientStatus.Churned ? 'bg-slate-400' : 'bg-blue-400'
-                                  }`}>
+                                  <div className="w-10 h-10 rounded-xl gradient-primary flex-shrink-0 flex items-center justify-center text-white font-bold text-sm mr-3 shadow-sm">
                                      {client.name.substring(0, 1)}
                                   </div>
-                                  <div className="font-bold text-slate-800 line-clamp-1">{client.name}</div>
+                                  <div className="font-semibold text-[var(--text-primary)]">{client.name}</div>
                                </div>
                             </td>
-                            <td className="px-6 py-4">
-                               <div className="flex flex-col">
-                                  <span className="text-slate-700 flex items-center text-xs mb-1">
-                                    <Briefcase className="w-3 h-3 mr-1 text-slate-400"/> {client.industry}
+                            <td>
+                               <div className="flex flex-col gap-1">
+                                  <span className="text-[var(--text-secondary)] flex items-center text-xs">
+                                    <Briefcase className="w-3 h-3 mr-1.5 text-[var(--text-tertiary)]"/> {client.industry}
                                   </span>
-                                  <span className="text-slate-500 flex items-center text-xs">
-                                    <MapPin className="w-3 h-3 mr-1 text-slate-400"/> {client.region || '未填写'}
+                                  <span className="text-[var(--text-tertiary)] flex items-center text-xs">
+                                    <MapPin className="w-3 h-3 mr-1.5"/> {client.region || '未填写'}
                                   </span>
                                </div>
                             </td>
-                            <td className="px-6 py-4">
+                            <td>
                                {firstContact ? (
                                   <div className="text-xs">
-                                     <div className="font-medium text-slate-700">{firstContact.name} <span className="text-slate-400">({firstContact.role})</span></div>
-                                     <div className="text-slate-500 mt-0.5">{firstContact.phone}</div>
+                                     <div className="font-medium text-[var(--text-primary)]">{firstContact.name} <span className="text-[var(--text-tertiary)]">({firstContact.role})</span></div>
+                                     <div className="text-[var(--text-secondary)] mt-0.5">{firstContact.phone}</div>
                                   </div>
                                ) : (
-                                  <span className="text-xs text-slate-400 italic">无联系人</span>
+                                  <span className="text-xs text-[var(--text-tertiary)] italic">无联系人</span>
                                )}
                             </td>
-                            <td className="px-6 py-4">
-                               <span className={`text-xs px-2 py-1 rounded-full border ${
-                                  client.status === ClientStatus.Active ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 
-                                  client.status === ClientStatus.Churned ? 'bg-slate-50 text-slate-600 border-slate-100' : 'bg-blue-50 text-blue-700 border-blue-100'
-                               }`}>
+                            <td>
+                               <span className={`badge ${getStatusBadgeClass(client.status)}`}>
                                   {client.status}
                                </span>
                             </td>
-                            <td className="px-6 py-4">
-                               <div className="flex items-center text-xs text-slate-600">
-                                  <UserIcon className="w-3 h-3 mr-1 text-slate-400"/>
+                            <td>
+                               <div className="flex items-center text-xs text-[var(--text-secondary)]">
+                                  <UserIcon className="w-3 h-3 mr-1.5 text-[var(--text-tertiary)]"/>
                                   {client.ownerName || 'Unknown'}
                                </div>
                             </td>
-                            <td className="px-6 py-4 text-right">
+                            <td className="text-right">
                                {hasPermission && (
                                    <button 
                                       onClick={(e) => { e.stopPropagation(); handleDeleteClient(client.id); }}
-                                      className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                      className="p-2 text-[var(--text-tertiary)] hover:text-[var(--danger)] hover:bg-[var(--danger-light)] rounded-lg transition-all"
                                       title="删除客户"
                                    >
                                       <Trash2 className="w-4 h-4" />
@@ -740,9 +750,11 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                    })}
                    {paginatedClients.length === 0 && (
                       <tr>
-                         <td colSpan={7} className="px-6 py-20 text-center text-slate-400">
-                            <Users className="w-12 h-12 mx-auto mb-3 opacity-10" />
-                            <p>未找到相关客户</p>
+                         <td colSpan={7} className="py-16 text-center">
+                            <div className="flex flex-col items-center justify-center text-[var(--text-tertiary)]">
+                               <Users className="w-12 h-12 mb-3 opacity-20" />
+                               <p className="text-sm">未找到相关客户</p>
+                            </div>
                          </td>
                       </tr>
                    )}
@@ -752,25 +764,25 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
           
           {/* Pagination Controls */}
           {filteredClients.length > 0 && (
-            <div className="px-6 py-3 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
-               <span className="text-xs text-slate-500">
-                  显示 {Math.min(filteredClients.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)} - {Math.min(filteredClients.length, currentPage * ITEMS_PER_PAGE)} 共 {filteredClients.length} 条
+            <div className="px-6 py-4 border-t border-[var(--border-light)] bg-[var(--bg-secondary)] flex justify-between items-center">
+               <span className="text-sm text-[var(--text-secondary)]">
+                  显示 <span className="font-medium text-[var(--text-primary)]">{Math.min(filteredClients.length, (currentPage - 1) * ITEMS_PER_PAGE + 1)} - {Math.min(filteredClients.length, currentPage * ITEMS_PER_PAGE)}</span> 共 <span className="font-medium text-[var(--text-primary)]">{filteredClients.length}</span> 条
                </span>
-               <div className="flex space-x-2">
+               <div className="flex items-center gap-2">
                   <button 
                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                      disabled={currentPage === 1}
-                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                     className="btn btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                      <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="text-xs flex items-center px-2 font-medium text-slate-600">
+                  <span className="text-sm font-medium text-[var(--text-primary)] px-4">
                      {currentPage} / {totalPages}
                   </span>
                   <button 
                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                      disabled={currentPage === totalPages}
-                     className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                     className="btn btn-secondary px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                      <ChevronRight className="w-4 h-4" />
                   </button>
@@ -781,27 +793,27 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
 
        {/* Batch Action Bar */}
        {selectedIds.size > 0 && (
-           <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center space-x-6 z-20 animate-fade-in-up">
-               <span className="text-sm font-medium mr-2">{selectedIds.size} 个已选中</span>
+           <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 glass-dark text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-6 z-20 animate-fade-in-up">
+               <span className="text-sm font-medium pr-4 border-r border-white/20">
+                  <span className="text-[var(--primary-400)] font-bold text-lg">{selectedIds.size}</span> 个已选中
+               </span>
                
-               <div className="h-6 w-px bg-slate-600"></div>
-               
-               <button onClick={() => handleBatchStatus(ClientStatus.Active)} className="flex flex-col items-center hover:text-emerald-400 transition-colors">
-                   <CheckSquare className="w-5 h-5 mb-1" />
-                   <span className="text-[10px]">设为已签约</span>
+               <button onClick={() => handleBatchStatus(ClientStatus.Active)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-sm">
+                   <CheckSquare className="w-4 h-4 text-[var(--success)]" />
+                   <span>设为已签约</span>
                </button>
                
-               <button onClick={handleBatchExport} className="flex flex-col items-center hover:text-blue-400 transition-colors">
-                   <Download className="w-5 h-5 mb-1" />
-                   <span className="text-[10px]">导出 CSV</span>
+               <button onClick={handleBatchExport} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-sm">
+                   <Download className="w-4 h-4 text-[var(--primary-400)]" />
+                   <span>导出 CSV</span>
                </button>
                
-               <button onClick={handleBatchDelete} className="flex flex-col items-center hover:text-red-400 transition-colors">
-                   <Trash2 className="w-5 h-5 mb-1" />
-                   <span className="text-[10px]">删除</span>
+               <button onClick={handleBatchDelete} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[var(--danger)]/20 transition-colors text-sm text-[var(--danger-light)]">
+                   <Trash2 className="w-4 h-4" />
+                   <span>删除</span>
                </button>
 
-               <button onClick={() => setSelectedIds(new Set())} className="ml-4 p-1 rounded-full bg-slate-700 hover:bg-slate-600">
+               <button onClick={() => setSelectedIds(new Set())} className="ml-2 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors">
                    <X className="w-4 h-4" />
                </button>
            </div>
@@ -809,37 +821,37 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
 
        {/* Detail Modal */}
        {selectedClient && (
-          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-             <div className="bg-white rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-scale-in">
+          <div className="fixed inset-0 bg-[var(--text-primary)]/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+             <div className="bg-[var(--bg-primary)] rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-scale-in">
                 {/* Modal Header */}
-                <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
-                   <div className="flex items-center space-x-4">
-                      <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm">
+                <div className="flex justify-between items-center p-5 border-b border-[var(--border-light)] bg-[var(--bg-secondary)]">
+                   <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl gradient-primary flex items-center justify-center text-white font-bold text-xl shadow-md">
                          {selectedClient.name.substring(0, 1)}
                       </div>
                       <div>
                          <input 
-                            className="font-bold text-lg text-slate-800 bg-transparent border-none focus:ring-0 p-0 w-64 focus:bg-white focus:px-2 rounded transition-all disabled:bg-transparent disabled:text-slate-600"
+                            className="font-bold text-lg text-[var(--text-primary)] bg-transparent border-none focus:ring-0 p-0 w-64 focus:bg-[var(--bg-primary)] focus:px-2 rounded transition-all disabled:bg-transparent disabled:text-[var(--text-secondary)]"
                             value={selectedClient.name}
                             onChange={(e) => setSelectedClient({...selectedClient, name: e.target.value})}
                             disabled={isReadOnly}
                          />
-                         <p className="text-xs text-slate-500">ID: {selectedClient.id}</p>
+                         <p className="text-xs text-[var(--text-tertiary)] mt-0.5">ID: {selectedClient.id}</p>
                       </div>
                    </div>
-                   <div className="flex items-center space-x-3">
+                   <div className="flex items-center gap-3">
                       {isReadOnly && (
-                          <div className="flex items-center bg-amber-50 text-amber-600 text-xs px-3 py-1.5 rounded-full border border-amber-100 mr-2">
-                              <ShieldIcon className="w-3 h-3 mr-1" />
+                          <div className="flex items-center gap-1.5 bg-[var(--warning-light)] text-[var(--warning)] text-xs px-3 py-1.5 rounded-full font-medium">
+                              <Shield className="w-3.5 h-3.5" />
                               只读权限
                           </div>
                       )}
-                      <div className="flex bg-slate-200 p-1 rounded-lg">
+                      <div className="flex bg-[var(--bg-tertiary)] p-1 rounded-xl">
                          {(['BASIC', 'EQUITY', 'CONTACTS'] as const).map(tab => (
                             <button
                                key={tab}
                                onClick={() => setActiveTab(tab)}
-                               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeTab === tab ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                               className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab ? 'bg-[var(--bg-primary)] text-[var(--primary-600)] shadow-sm' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
                             >
                                {tab === 'BASIC' && '基本信息'}
                                {tab === 'EQUITY' && '股权画像'}
@@ -849,33 +861,33 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                       </div>
                       {!isReadOnly && (
                           <>
-                            <div className="h-6 w-px bg-slate-300 mx-2"></div>
+                            <div className="h-6 w-px bg-[var(--border)] mx-1"></div>
                             <button 
                                 onClick={handleSaveClient} 
                                 disabled={isSaving}
-                                className="flex items-center bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 disabled:opacity-70"
+                                className="btn btn-primary"
                             >
-                                {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin"/> : <Save className="w-4 h-4 mr-2"/>}
+                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>}
                                 保存
                             </button>
                           </>
                       )}
-                      <button onClick={() => setSelectedClient(null)} className="p-2 text-slate-400 hover:bg-slate-200 rounded-lg">
+                      <button onClick={() => setSelectedClient(null)} className="p-2 text-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
                          <X className="w-5 h-5" />
                       </button>
                    </div>
                 </div>
 
                 {/* Modal Content */}
-                <div className="flex-1 overflow-hidden bg-slate-50 relative">
+                <div className="flex-1 overflow-hidden bg-[var(--bg-secondary)] relative">
                    {activeTab === 'BASIC' && (
                       <div className="h-full overflow-y-auto p-6">
-                         {/* Tags Section (Always visible at top of BASIC tab) */}
-                         <div className="mb-4 flex flex-wrap gap-2 animate-fade-in-down">
+                         {/* Tags Section */}
+                         <div className="mb-6 flex flex-wrap gap-2 animate-fade-in-down">
                             {selectedClient.tags && selectedClient.tags.length > 0 ? (
                                 selectedClient.tags.map((tag, idx) => (
-                                    <div key={idx} className="flex items-center px-3 py-1 bg-white border border-indigo-100 rounded-full shadow-sm text-xs text-indigo-700 font-medium hover:bg-indigo-50 transition-colors cursor-default">
-                                        <Tag className="w-3 h-3 mr-1.5 text-indigo-400" />
+                                    <div key={idx} className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--primary-50)] border border-[var(--primary-200)] rounded-full text-xs text-[var(--primary-700)] font-medium">
+                                        <Tag className="w-3 h-3 text-[var(--primary-500)]" />
                                         {tag}
                                         {!isReadOnly && (
                                             <button 
@@ -884,7 +896,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                                     newTags.splice(idx, 1);
                                                     setSelectedClient({...selectedClient, tags: newTags});
                                                 }}
-                                                className="ml-2 text-indigo-300 hover:text-indigo-500"
+                                                className="ml-1 text-[var(--primary-400)] hover:text-[var(--primary-600)] transition-colors"
                                             >
                                                 <X className="w-3 h-3" />
                                             </button>
@@ -892,9 +904,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                     </div>
                                 ))
                             ) : (
-                                <div className="text-xs text-slate-400 flex items-center px-2 py-1 italic">
+                                <div className="text-xs text-[var(--text-tertiary)] flex items-center px-2 py-1 italic">
                                     <Tag className="w-3 h-3 mr-1.5 opacity-50" />
-                                    暂无 AI 标签，点击“生成画像”自动获取
+                                    暂无 AI 标签，点击"生成画像"自动获取
                                 </div>
                             )}
                             {!isReadOnly && (
@@ -905,23 +917,26 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                             setSelectedClient(prev => prev ? ({...prev, tags: [...(prev.tags || []), tag]}) : null);
                                         }
                                     }}
-                                    className="flex items-center px-3 py-1 bg-slate-100 border border-transparent rounded-full text-xs text-slate-500 hover:bg-slate-200 transition-colors"
+                                    className="flex items-center px-3 py-1.5 bg-[var(--bg-tertiary)] border border-transparent rounded-full text-xs text-[var(--text-secondary)] hover:bg-[var(--border)] hover:text-[var(--text-primary)] transition-colors"
                                 >
-                                    <Plus className="w-3 h-3 mr-1" /> 添加
+                                    <Plus className="w-3 h-3 mr-1" /> 添加标签
                                 </button>
                             )}
                          </div>
 
                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                             {/* Basic Fields */}
-                            <div className="space-y-4 lg:col-span-1">
-                               <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
-                                  <h4 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider">基础资料</h4>
+                            <div className="space-y-6 lg:col-span-1">
+                               <div className="card p-5">
+                                  <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                                    <Building className="w-4 h-4 text-[var(--primary-500)]" />
+                                    基础资料
+                                  </h4>
                                   <div className="space-y-4">
                                      <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">所属行业</label>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所属行业</label>
                                         <select 
-                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                                           className="input"
                                            value={selectedClient.industry}
                                            onChange={e => setSelectedClient({...selectedClient, industry: e.target.value})}
                                            disabled={isReadOnly}
@@ -932,9 +947,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                         </select>
                                      </div>
                                      <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">所在地区</label>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所在地区</label>
                                         <input 
-                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                                           className="input"
                                            value={selectedClient.region}
                                            onChange={e => setSelectedClient({...selectedClient, region: e.target.value})}
                                            placeholder="例如：上海, 浦东新区"
@@ -942,9 +957,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                         />
                                      </div>
                                      <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">客户状态</label>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">客户状态</label>
                                         <select 
-                                           className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                                           className="input"
                                            value={selectedClient.status}
                                            onChange={e => setSelectedClient({...selectedClient, status: e.target.value as ClientStatus})}
                                            disabled={isReadOnly}
@@ -953,9 +968,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                         </select>
                                      </div>
                                      <div>
-                                        <label className="block text-xs font-semibold text-slate-500 mb-1">负责人</label>
-                                        <div className="flex items-center p-2 bg-slate-50 rounded-lg border border-slate-200 text-sm text-slate-600">
-                                            <UserIcon className="w-4 h-4 mr-2" />
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">负责人</label>
+                                        <div className="flex items-center p-2.5 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)]">
+                                            <UserIcon className="w-4 h-4 mr-2 text-[var(--text-tertiary)]" />
                                             {selectedClient.ownerName || 'Unknown'}
                                         </div>
                                      </div>
@@ -964,15 +979,18 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
 
                                {/* Custom Fields */}
                                {fieldDefinitions.length > 0 && (
-                                  <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
-                                     <h4 className="text-sm font-bold text-slate-800 mb-4 uppercase tracking-wider">自定义信息</h4>
-                                     <div className="space-y-3">
+                                  <div className="card p-5">
+                                     <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                                       <Filter className="w-4 h-4 text-[var(--primary-500)]" />
+                                       自定义信息
+                                     </h4>
+                                     <div className="space-y-4">
                                         {fieldDefinitions.map(field => (
                                            <div key={field.id}>
-                                              <label className="block text-xs font-semibold text-slate-500 mb-1">{field.label}</label>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">{field.label}</label>
                                               {field.type === 'select' ? (
                                                  <select
-                                                    className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                                                    className="input"
                                                     value={selectedClient.customFields?.[field.key] || ''}
                                                     onChange={e => handleUpdateCustomField(field.key, e.target.value, field.type)}
                                                     disabled={isReadOnly}
@@ -983,7 +1001,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                               ) : (
                                                  <input 
                                                     type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-                                                    className="w-full p-2 rounded-lg border border-slate-200 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                                                    className="input"
                                                     value={selectedClient.customFields?.[field.key] || ''}
                                                     onChange={e => handleUpdateCustomField(field.key, e.target.value, field.type)}
                                                     disabled={isReadOnly}
@@ -997,61 +1015,74 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                             </div>
 
                             {/* AI Analysis Section */}
-                            <div className="lg:col-span-2 space-y-4">
-                               <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm h-full flex flex-col">
-                                  <div className="flex justify-between items-center mb-4">
-                                     <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center">
-                                        <PieIcon className="w-4 h-4 mr-2 text-indigo-600" />
+                            <div className="lg:col-span-2 space-y-6">
+                               <div className="card p-6 h-full flex flex-col">
+                                  <div className="flex justify-between items-center mb-5">
+                                     <h4 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                                        <BarChart2 className="w-4 h-4 text-[var(--primary-500)]" />
                                         企业画像与财务分析
                                      </h4>
                                      {!isReadOnly && (
-                                         <div className="flex items-center space-x-2">
+                                         <div className="flex items-center gap-2">
                                             <select
                                                 value={selectedAiModel}
                                                 onChange={(e) => setSelectedAiModel(e.target.value as AIModelType)}
-                                                className="text-xs bg-white border border-indigo-100 text-slate-700 px-2 py-1.5 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                                                className="input py-1.5 px-3 text-xs w-32"
                                             >
                                                 <option value="gemini">Gemini</option>
                                                 <option value="deepseek">DeepSeek</option>
                                                 <option value="spark">讯飞星火</option>
+                                                <option value="kimi">Kimi</option>
                                             </select>
                                             <button 
                                                 onClick={handleGenerateProfile}
                                                 disabled={isProfileLoading}
-                                                className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg hover:bg-indigo-100 flex items-center font-medium transition-colors"
+                                                className="btn btn-primary text-xs py-1.5"
                                             >
-                                                {isProfileLoading ? <Loader2 className="w-3 h-3 mr-1 animate-spin"/> : <RefreshCw className="w-3 h-3 mr-1"/>}
+                                                {isProfileLoading ? <Loader2 className="w-3 h-3 animate-spin"/> : <RefreshCw className="w-3 h-3"/>}
                                                 生成画像
                                             </button>
                                          </div>
                                      )}
                                   </div>
                                   
-                                  <div className="grid grid-cols-1 gap-4 flex-1">
-                                     <div className={`relative transition-all ${fullscreenSection === 'FINANCIAL' ? 'fixed inset-4 z-50 bg-white shadow-2xl p-6 rounded-xl border border-slate-200' : 'bg-slate-50 p-4 rounded-xl border border-slate-100'}`}>
-                                        <div className="flex justify-between items-center mb-2">
-                                           <h5 className="font-bold text-slate-700 text-sm">财务分析</h5>
-                                           <button onClick={() => setFullscreenSection(fullscreenSection === 'FINANCIAL' ? null : 'FINANCIAL')}>
-                                              {fullscreenSection === 'FINANCIAL' ? <Minimize2 className="w-4 h-4 text-slate-400"/> : <Maximize2 className="w-4 h-4 text-slate-400"/>}
+                                  <div className="grid grid-cols-1 gap-5 flex-1">
+                                     <div className={`relative transition-all ${fullscreenSection === 'FINANCIAL' ? 'fixed inset-4 z-50 bg-[var(--bg-primary)] shadow-2xl p-6 rounded-2xl border border-[var(--border)]' : 'bg-[var(--bg-secondary)] p-5 rounded-xl border border-[var(--border-light)]'}`}>
+                                        <div className="flex justify-between items-center mb-3">
+                                           <h5 className="font-semibold text-[var(--text-primary)] text-sm flex items-center gap-2">
+                                              <PieIcon className="w-4 h-4 text-[var(--primary-500)]" />
+                                              财务分析
+                                           </h5>
+                                           <button 
+                                              onClick={() => setFullscreenSection(fullscreenSection === 'FINANCIAL' ? null : 'FINANCIAL')}
+                                              className="p-1.5 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
+                                           >
+                                              {fullscreenSection === 'FINANCIAL' ? <Minimize2 className="w-4 h-4 text-[var(--text-tertiary)]"/> : <Maximize2 className="w-4 h-4 text-[var(--text-tertiary)]"/>}
                                            </button>
                                         </div>
                                         <textarea 
-                                           className="w-full h-[calc(100%-2rem)] bg-transparent resize-none focus:outline-none text-sm text-slate-600 leading-relaxed disabled:text-slate-500"
+                                           className="w-full h-[calc(100%-2.5rem)] bg-transparent resize-none focus:outline-none text-sm text-[var(--text-secondary)] leading-relaxed disabled:text-[var(--text-tertiary)]"
                                            value={selectedClient.financialAnalysis || ''}
                                            onChange={e => setSelectedClient({...selectedClient, financialAnalysis: e.target.value})}
                                            placeholder="点击生成画像获取财务分析..."
                                            disabled={isReadOnly}
                                         />
                                      </div>
-                                     <div className={`relative transition-all ${fullscreenSection === 'SUPPLY' ? 'fixed inset-4 z-50 bg-white shadow-2xl p-6 rounded-xl border border-slate-200' : 'bg-slate-50 p-4 rounded-xl border border-slate-100'}`}>
-                                        <div className="flex justify-between items-center mb-2">
-                                           <h5 className="font-bold text-slate-700 text-sm">供应链信息</h5>
-                                           <button onClick={() => setFullscreenSection(fullscreenSection === 'SUPPLY' ? null : 'SUPPLY')}>
-                                              {fullscreenSection === 'SUPPLY' ? <Minimize2 className="w-4 h-4 text-slate-400"/> : <Maximize2 className="w-4 h-4 text-slate-400"/>}
+                                     <div className={`relative transition-all ${fullscreenSection === 'SUPPLY' ? 'fixed inset-4 z-50 bg-[var(--bg-primary)] shadow-2xl p-6 rounded-2xl border border-[var(--border)]' : 'bg-[var(--bg-secondary)] p-5 rounded-xl border border-[var(--border-light)]'}`}>
+                                        <div className="flex justify-between items-center mb-3">
+                                           <h5 className="font-semibold text-[var(--text-primary)] text-sm flex items-center gap-2">
+                                              <Share2 className="w-4 h-4 text-[var(--success)]" />
+                                              供应链信息
+                                           </h5>
+                                           <button 
+                                              onClick={() => setFullscreenSection(fullscreenSection === 'SUPPLY' ? null : 'SUPPLY')}
+                                              className="p-1.5 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
+                                           >
+                                              {fullscreenSection === 'SUPPLY' ? <Minimize2 className="w-4 h-4 text-[var(--text-tertiary)]"/> : <Maximize2 className="w-4 h-4 text-[var(--text-tertiary)]"/>}
                                            </button>
                                         </div>
                                         <textarea 
-                                           className="w-full h-[calc(100%-2rem)] bg-transparent resize-none focus:outline-none text-sm text-slate-600 leading-relaxed disabled:text-slate-500"
+                                           className="w-full h-[calc(100%-2.5rem)] bg-transparent resize-none focus:outline-none text-sm text-[var(--text-secondary)] leading-relaxed disabled:text-[var(--text-tertiary)]"
                                            value={selectedClient.supplyChainInfo || ''}
                                            onChange={e => setSelectedClient({...selectedClient, supplyChainInfo: e.target.value})}
                                            placeholder="点击生成画像获取供应链信息..."
@@ -1065,22 +1096,22 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                       </div>
                    )}
 
-                   {/* Equity & Contacts tabs preserved as is ... */}
+                   {/* Equity Tab */}
                    {activeTab === 'EQUITY' && (
                       <div className="h-full flex flex-col md:flex-row">
                          {/* Visualization Panel */}
-                         <div className={`relative transition-all duration-300 ${selectedEquityType && !isReadOnly ? 'w-full md:w-2/3' : 'w-full'} h-full bg-slate-100 flex items-center justify-center overflow-hidden`}>
-                             <div className="absolute top-4 left-4 z-10 flex space-x-2 bg-white/80 backdrop-blur p-1 rounded-lg border border-slate-200">
+                         <div className={`relative transition-all duration-300 ${selectedEquityType && !isReadOnly ? 'w-full md:w-2/3' : 'w-full'} h-full bg-[var(--bg-tertiary)] flex items-center justify-center overflow-hidden`}>
+                             <div className="absolute top-4 left-4 z-10 flex gap-1 bg-[var(--bg-primary)] p-1 rounded-xl border border-[var(--border-light)] shadow-sm">
                                 <button 
                                    onClick={() => setVisualMode('MAP')}
-                                   className={`p-1.5 rounded ${visualMode === 'MAP' ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                   className={`p-2 rounded-lg transition-colors ${visualMode === 'MAP' ? 'bg-[var(--primary-50)] text-[var(--primary-600)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'}`}
                                    title="关系图谱"
                                 >
                                    <LayoutGrid className="w-4 h-4" />
                                 </button>
                                 <button 
                                    onClick={() => setVisualMode('PIE')}
-                                   className={`p-1.5 rounded ${visualMode === 'PIE' ? 'bg-indigo-100 text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                                   className={`p-2 rounded-lg transition-colors ${visualMode === 'PIE' ? 'bg-[var(--primary-50)] text-[var(--primary-600)]' : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'}`}
                                    title="占比图表"
                                 >
                                    <PieIcon className="w-4 h-4" />
@@ -1088,10 +1119,10 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                              </div>
                              
                              {visualMode === 'MAP' && (
-                                <div className="absolute bottom-4 left-4 z-10 bg-white/80 backdrop-blur p-2 rounded-lg border border-slate-200 text-xs">
-                                   <div className="flex items-center mb-1"><span className="w-3 h-3 rounded-full bg-red-100 border border-red-400 mr-2"></span>个人股东</div>
-                                   <div className="flex items-center mb-1"><span className="w-3 h-3 rounded-full bg-blue-100 border border-blue-400 mr-2"></span>机构股东</div>
-                                   <div className="flex items-center"><span className="w-3 h-2 bg-emerald-100 border border-emerald-400 mr-2"></span>对外投资</div>
+                                <div className="absolute bottom-4 left-4 z-10 bg-[var(--bg-primary)] p-3 rounded-xl border border-[var(--border-light)] shadow-sm text-xs space-y-2">
+                                   <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-rose-100 border border-rose-400 mr-2"></span><span className="text-[var(--text-secondary)]">个人股东</span></div>
+                                   <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-[var(--primary-100)] border border-[var(--primary-400)] mr-2"></span><span className="text-[var(--text-secondary)]">机构股东</span></div>
+                                   <div className="flex items-center"><span className="w-3 h-2 bg-[var(--success-light)] border border-[var(--success)] mr-2"></span><span className="text-[var(--text-secondary)]">对外投资</span></div>
                                 </div>
                              )}
 
@@ -1107,22 +1138,22 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                    readOnly={isReadOnly}
                                 />
                              ) : (
-                                <div className="w-full h-full flex flex-col md:flex-row p-4">
-                                   <div className="flex-1 h-1/2 md:h-full">
-                                      <h4 className="text-center font-bold text-slate-700 mb-2">股东结构</h4>
-                                      <ResponsiveContainer width="100%" height="90%">
+                                <div className="w-full h-full flex flex-col md:flex-row p-6 gap-6">
+                                   <div className="flex-1 h-1/2 md:h-full card p-4">
+                                      <h4 className="text-center font-bold text-[var(--text-primary)] mb-4">股东结构</h4>
+                                      <ResponsiveContainer width="100%" height="85%">
                                          <PieChart>
                                             <Pie
                                                data={selectedClient.equityStructure}
                                                dataKey="percentage"
                                                nameKey="name"
-                                               cx="50%" cy="50%"
+                                               cx="50%" cy="45%"
                                                outerRadius={80}
                                                fill="#8884d8"
                                                label
                                             >
                                                {(selectedClient.equityStructure || []).map((entry, index) => (
-                                                  <Cell key={`cell-${index}`} fill={entry.type === 'institution' ? '#3b82f6' : '#f43f5e'} />
+                                                  <Cell key={`cell-${index}`} fill={entry.type === 'institution' ? 'var(--primary-500)' : '#f43f5e'} />
                                                ))}
                                             </Pie>
                                             <RechartsTooltip />
@@ -1130,18 +1161,18 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                          </PieChart>
                                       </ResponsiveContainer>
                                    </div>
-                                   <div className="flex-1 h-1/2 md:h-full border-t md:border-t-0 md:border-l border-slate-200">
-                                      <h4 className="text-center font-bold text-slate-700 mb-2 mt-4 md:mt-0">对外投资</h4>
-                                      <ResponsiveContainer width="100%" height="90%">
+                                   <div className="flex-1 h-1/2 md:h-full card p-4">
+                                      <h4 className="text-center font-bold text-[var(--text-primary)] mb-4">对外投资</h4>
+                                      <ResponsiveContainer width="100%" height="85%">
                                          <PieChart>
                                             <Pie
                                                data={selectedClient.subsidiaries}
                                                dataKey="percentage"
                                                nameKey="name"
-                                               cx="50%" cy="50%"
+                                               cx="50%" cy="45%"
                                                innerRadius={40}
                                                outerRadius={80}
-                                               fill="#10b981"
+                                               fill="var(--success)"
                                                label
                                             >
                                                {(selectedClient.subsidiaries || []).map((entry, index) => (
@@ -1158,46 +1189,48 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                          </div>
 
                          {/* Editor Panel */}
-                         <div className={`bg-white border-l border-slate-200 transition-all duration-300 flex flex-col ${selectedEquityType && !isReadOnly ? 'w-full md:w-1/3' : 'w-0 hidden'}`}>
-                             <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                                <h3 className="font-bold text-slate-800">
+                         <div className={`bg-[var(--bg-primary)] border-l border-[var(--border-light)] transition-all duration-300 flex flex-col ${selectedEquityType && !isReadOnly ? 'w-full md:w-1/3' : 'w-0 hidden'}`}>
+                             <div className="p-5 border-b border-[var(--border-light)] flex justify-between items-center bg-[var(--bg-secondary)]">
+                                <h3 className="font-bold text-[var(--text-primary)]">
                                    {selectedEquityType === 'shareholder' ? '编辑股东信息' : '编辑子公司信息'}
                                 </h3>
-                                <button onClick={() => { setSelectedEquityType(null); setSelectedEquityIndex(null); }} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4"/></button>
+                                <button onClick={() => { setSelectedEquityType(null); setSelectedEquityIndex(null); }} className="p-1.5 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
+                                  <X className="w-4 h-4"/>
+                                </button>
                              </div>
                              
-                             <div className="p-4 space-y-4 overflow-y-auto flex-1">
+                             <div className="p-5 space-y-4 overflow-y-auto flex-1">
                                 {selectedEquityType === 'shareholder' && selectedEquityIndex !== null && selectedClient.equityStructure && (
                                    <>
                                       <div>
-                                         <label className="block text-xs font-semibold text-slate-500 mb-1">股东名称</label>
+                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">股东名称</label>
                                          <input 
-                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            className="input"
                                             value={selectedClient.equityStructure[selectedEquityIndex].name}
                                             onChange={(e) => handleUpdateShareholder(selectedEquityIndex, 'name', e.target.value)}
                                          />
                                       </div>
                                       <div>
-                                         <label className="block text-xs font-semibold text-slate-500 mb-1">持股比例 (%)</label>
+                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">持股比例 (%)</label>
                                          <input 
                                             type="number"
-                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            className="input"
                                             value={selectedClient.equityStructure[selectedEquityIndex].percentage}
                                             onChange={(e) => handleUpdateShareholder(selectedEquityIndex, 'percentage', parseFloat(e.target.value) || 0)}
                                          />
                                       </div>
                                       <div>
-                                         <label className="block text-xs font-semibold text-slate-500 mb-1">类型</label>
-                                         <div className="flex space-x-2">
+                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">类型</label>
+                                         <div className="flex gap-2">
                                             <button 
                                                onClick={() => handleUpdateShareholder(selectedEquityIndex, 'type', 'individual')}
-                                               className={`flex-1 py-2 text-xs rounded-lg border ${selectedClient.equityStructure[selectedEquityIndex].type === 'individual' ? 'bg-red-50 border-red-200 text-red-700' : 'border-slate-200 text-slate-600'}`}
+                                               className={`flex-1 py-2.5 text-xs font-medium rounded-lg border transition-all ${selectedClient.equityStructure[selectedEquityIndex].type === 'individual' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-light)]'}`}
                                             >
                                                个人
                                             </button>
                                             <button 
                                                onClick={() => handleUpdateShareholder(selectedEquityIndex, 'type', 'institution')}
-                                               className={`flex-1 py-2 text-xs rounded-lg border ${selectedClient.equityStructure[selectedEquityIndex].type === 'institution' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'border-slate-200 text-slate-600'}`}
+                                               className={`flex-1 py-2.5 text-xs font-medium rounded-lg border transition-all ${selectedClient.equityStructure[selectedEquityIndex].type === 'institution' ? 'bg-[var(--primary-50)] border-[var(--primary-200)] text-[var(--primary-700)]' : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-light)]'}`}
                                             >
                                                机构
                                             </button>
@@ -1205,7 +1238,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                       </div>
                                       <button 
                                          onClick={() => handleDeleteShareholder(selectedEquityIndex)}
-                                         className="w-full mt-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg text-sm font-medium flex items-center justify-center"
+                                         className="w-full mt-4 py-2.5 text-[var(--danger)] bg-[var(--danger-light)] hover:bg-[var(--danger)] hover:text-white rounded-lg text-sm font-medium flex items-center justify-center transition-all"
                                       >
                                          <Trash2 className="w-4 h-4 mr-2" /> 删除股东
                                       </button>
@@ -1215,26 +1248,26 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                 {selectedEquityType === 'subsidiary' && selectedEquityIndex !== null && selectedClient.subsidiaries && (
                                    <>
                                       <div>
-                                         <label className="block text-xs font-semibold text-slate-500 mb-1">公司名称</label>
+                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">公司名称</label>
                                          <input 
-                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            className="input"
                                             value={selectedClient.subsidiaries[selectedEquityIndex].name}
                                             onChange={(e) => handleUpdateSubsidiary(selectedEquityIndex, 'name', e.target.value)}
                                          />
                                       </div>
                                       <div>
-                                         <label className="block text-xs font-semibold text-slate-500 mb-1">持股比例 (%)</label>
+                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">持股比例 (%)</label>
                                          <input 
                                             type="number"
-                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            className="input"
                                             value={selectedClient.subsidiaries[selectedEquityIndex].percentage}
                                             onChange={(e) => handleUpdateSubsidiary(selectedEquityIndex, 'percentage', parseFloat(e.target.value) || 0)}
                                          />
                                       </div>
                                       <div>
-                                         <label className="block text-xs font-semibold text-slate-500 mb-1">行业</label>
+                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">行业</label>
                                          <input 
-                                            className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                            className="input"
                                             value={selectedClient.subsidiaries[selectedEquityIndex].industry || ''}
                                             onChange={(e) => handleUpdateSubsidiary(selectedEquityIndex, 'industry', e.target.value)}
                                          />
@@ -1247,7 +1280,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                             setSelectedClient({ ...selectedClient, subsidiaries: newList });
                                             setSelectedEquityType(null);
                                          }}
-                                         className="w-full mt-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg text-sm font-medium flex items-center justify-center"
+                                         className="w-full mt-4 py-2.5 text-[var(--danger)] bg-[var(--danger-light)] hover:bg-[var(--danger)] hover:text-white rounded-lg text-sm font-medium flex items-center justify-center transition-all"
                                       >
                                          <Trash2 className="w-4 h-4 mr-2" /> 删除子公司
                                       </button>
@@ -1258,35 +1291,39 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                          
                          {/* Floating Add Buttons */}
                          {!selectedEquityType && !isReadOnly && (
-                            <div className="absolute bottom-6 right-6 flex flex-col space-y-3 z-20">
+                            <div className="absolute bottom-6 right-6 flex flex-col gap-3 z-10">
                                <button 
                                   onClick={handleAddShareholder}
-                                  className="flex items-center bg-white shadow-lg border border-slate-100 px-4 py-2 rounded-full text-sm font-medium text-slate-700 hover:text-indigo-600 hover:scale-105 transition-all"
+                                  className="flex items-center gap-2 bg-[var(--bg-primary)] shadow-lg border border-[var(--border-light)] px-4 py-2.5 rounded-full text-sm font-medium text-[var(--text-primary)] hover:text-[var(--primary-600)] hover:shadow-xl hover:-translate-y-0.5 transition-all"
                                >
-                                  <Plus className="w-4 h-4 mr-2" /> 添加股东
+                                  <Plus className="w-4 h-4" /> 添加股东
                                </button>
                                <button 
                                   onClick={handleAddSubsidiary}
-                                  className="flex items-center bg-white shadow-lg border border-slate-100 px-4 py-2 rounded-full text-sm font-medium text-slate-700 hover:text-emerald-600 hover:scale-105 transition-all"
+                                  className="flex items-center gap-2 bg-[var(--bg-primary)] shadow-lg border border-[var(--border-light)] px-4 py-2.5 rounded-full text-sm font-medium text-[var(--text-primary)] hover:text-[var(--success)] hover:shadow-xl hover:-translate-y-0.5 transition-all"
                                >
-                                  <Plus className="w-4 h-4 mr-2" /> 添加对外投资
+                                  <Plus className="w-4 h-4" /> 添加对外投资
                                </button>
                             </div>
                          )}
                       </div>
                    )}
 
+                   {/* Contacts Tab */}
                    {activeTab === 'CONTACTS' && (
                       <div className="h-full p-6 flex flex-col md:flex-row gap-6">
                          <div className="flex-1 overflow-y-auto">
-                            <div className="flex justify-between items-center mb-4">
-                               <h4 className="font-bold text-slate-800">联系人列表</h4>
+                            <div className="flex justify-between items-center mb-5">
+                               <h4 className="font-bold text-[var(--text-primary)] flex items-center gap-2">
+                                  <ContactIcon className="w-4 h-4 text-[var(--primary-500)]" />
+                                  联系人列表
+                               </h4>
                                {!isReadOnly && (
                                    <button 
                                       onClick={handleAddContact}
-                                      className="text-sm bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg font-medium hover:bg-indigo-100"
+                                      className="btn btn-primary text-xs py-2"
                                    >
-                                      <Plus className="w-4 h-4 inline mr-1" /> 添加
+                                      <Plus className="w-3.5 h-3.5" /> 添加联系人
                                    </button>
                                )}
                             </div>
@@ -1295,43 +1332,48 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                   <div 
                                     key={contact.id} 
                                     onClick={() => handleEditContact(contact)}
-                                    className={`p-4 rounded-xl border transition-all ${editingContactId === contact.id ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200'} ${isReadOnly ? '' : 'cursor-pointer'}`}
+                                    className={`card p-4 transition-all ${editingContactId === contact.id ? 'ring-2 ring-[var(--primary-300)] border-[var(--primary-300)]' : 'card-interactive'} ${isReadOnly ? '' : 'cursor-pointer'}`}
                                   >
                                      <div className="flex justify-between items-start">
-                                        <div className="flex items-center">
-                                           <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 font-bold mr-3">
+                                        <div className="flex items-center gap-3">
+                                           <div className="w-11 h-11 rounded-full bg-[var(--primary-100)] flex items-center justify-center text-[var(--primary-600)] font-bold text-sm">
                                               {contact.name[0]}
                                            </div>
                                            <div>
-                                              <p className="font-bold text-slate-800 text-sm">{contact.name}</p>
-                                              <p className="text-xs text-slate-500">{contact.role}</p>
+                                              <p className="font-semibold text-[var(--text-primary)] text-sm">{contact.name}</p>
+                                              <p className="text-xs text-[var(--text-tertiary)]">{contact.role}</p>
                                            </div>
                                         </div>
                                         {!isReadOnly && (
                                             <button 
                                                onClick={(e) => { e.stopPropagation(); handleDeleteContact(contact.id); }}
-                                               className="text-slate-300 hover:text-red-500"
+                                               className="p-2 text-[var(--text-tertiary)] hover:text-[var(--danger)] hover:bg-[var(--danger-light)] rounded-lg transition-all"
                                             >
                                                <Trash2 className="w-4 h-4" />
                                             </button>
                                         )}
                                      </div>
-                                     <div className="mt-3 space-y-1">
-                                        <div className="flex items-center text-xs text-slate-600">
-                                           <Mail className="w-3 h-3 mr-2 text-slate-400" />
+                                     <div className="mt-4 space-y-2 pl-14">
+                                        <div className="flex items-center text-xs text-[var(--text-secondary)]">
+                                           <Mail className="w-3.5 h-3.5 mr-2 text-[var(--text-tertiary)]" />
                                            {contact.email || '-'}
                                         </div>
-                                        <div className="flex items-center text-xs text-slate-600">
-                                           <Phone className="w-3 h-3 mr-2 text-slate-400" />
+                                        <div className="flex items-center text-xs text-[var(--text-secondary)]">
+                                           <Phone className="w-3.5 h-3.5 mr-2 text-[var(--text-tertiary)]" />
                                            {contact.phone || '-'}
                                         </div>
                                      </div>
                                   </div>
                                ))}
                                {selectedClient.contacts.length === 0 && (
-                                  <div className="text-center py-10 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
-                                     <ContactIcon className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                  <div className="text-center py-12 text-[var(--text-tertiary)] border-2 border-dashed border-[var(--border)] rounded-xl">
+                                     <ContactIcon className="w-10 h-10 mx-auto mb-3 opacity-30" />
                                      <p className="text-sm">暂无联系人</p>
+                                     {!isReadOnly && (
+                                        <button onClick={handleAddContact} className="mt-3 text-sm text-[var(--primary-600)] hover:underline">
+                                           添加第一个联系人
+                                        </button>
+                                     )}
                                   </div>
                                )}
                             </div>
@@ -1339,52 +1381,61 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                          
                          {/* Contact Editor */}
                          {editingContactId && !isReadOnly && (
-                            <div className="w-full md:w-80 bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
-                               <h4 className="font-bold text-slate-800 mb-4">{editingContactId === 'NEW' ? '新建联系人' : '编辑联系人'}</h4>
+                            <div className="w-full md:w-96 card p-5 h-fit">
+                               <h4 className="font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
+                                  <UserIcon className="w-4 h-4 text-[var(--primary-500)]" />
+                                  {editingContactId === 'NEW' ? '新建联系人' : '编辑联系人'}
+                               </h4>
                                <div className="space-y-4">
                                   <div>
-                                     <label className="block text-xs font-semibold text-slate-500 mb-1">姓名</label>
+                                     <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">姓名</label>
                                      <input 
-                                        className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                        className="input"
                                         value={tempContact.name || ''}
                                         onChange={e => setTempContact({...tempContact, name: e.target.value})}
                                         autoFocus
+                                        placeholder="请输入姓名"
                                      />
                                   </div>
                                   <div>
-                                     <label className="block text-xs font-semibold text-slate-500 mb-1">职位</label>
+                                     <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">职位</label>
                                      <input 
-                                        className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                        className="input"
                                         value={tempContact.role || ''}
                                         onChange={e => setTempContact({...tempContact, role: e.target.value})}
+                                        placeholder="请输入职位"
                                      />
                                   </div>
                                   <div>
-                                     <label className="block text-xs font-semibold text-slate-500 mb-1">邮箱</label>
+                                     <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">邮箱</label>
                                      <input 
-                                        className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                        type="email"
+                                        className="input"
                                         value={tempContact.email || ''}
                                         onChange={e => setTempContact({...tempContact, email: e.target.value})}
+                                        placeholder="请输入邮箱"
                                      />
                                   </div>
                                   <div>
-                                     <label className="block text-xs font-semibold text-slate-500 mb-1">电话</label>
+                                     <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">电话</label>
                                      <input 
-                                        className="w-full p-2 rounded-lg border border-slate-200 text-sm"
+                                        type="tel"
+                                        className="input"
                                         value={tempContact.phone || ''}
                                         onChange={e => setTempContact({...tempContact, phone: e.target.value})}
+                                        placeholder="请输入电话"
                                      />
                                   </div>
-                                  <div className="flex gap-2 pt-2">
+                                  <div className="flex gap-3 pt-2">
                                      <button 
                                         onClick={() => setEditingContactId(null)}
-                                        className="flex-1 py-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium"
+                                        className="flex-1 btn btn-secondary"
                                      >
                                         取消
                                      </button>
                                      <button 
                                         onClick={handleSaveContact}
-                                        className="flex-1 py-2 text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium"
+                                        className="flex-1 btn btn-primary"
                                      >
                                         确认
                                      </button>
@@ -1402,4 +1453,4 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
   );
 };
 
-const ShieldIcon = (props: any) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>;
+export default ClientManager;

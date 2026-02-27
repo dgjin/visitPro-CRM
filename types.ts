@@ -148,7 +148,7 @@ export interface Notification {
 
 export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES';
 
-export type AIModelType = 'gemini' | 'deepseek' | 'spark';
+export type AIModelType = 'gemini' | 'deepseek' | 'spark' | 'kimi';
 
 export interface AppSettings {
   aiModel: AIModelType;

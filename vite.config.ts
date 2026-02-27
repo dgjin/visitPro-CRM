@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => {
       'process.env.IFLYTEK_API_KEY': JSON.stringify(env.IFLYTEK_API_KEY || ''),
       'process.env.IFLYTEK_DOMAIN': JSON.stringify(env.IFLYTEK_DOMAIN || ''),
       'process.env.IFLYTEK_STT_DOMAIN': JSON.stringify(env.IFLYTEK_STT_DOMAIN || ''),
+      'process.env.KIMI_API_KEY': JSON.stringify(env.KIMI_API_KEY || ''),
     },
   };
 });
