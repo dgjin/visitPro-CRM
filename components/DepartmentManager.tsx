@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Department, DepartmentNode, User } from '../types';
 import { Plus, Edit2, Trash2, ChevronRight, ChevronDown, FolderTree, X, Network as NetworkIcon, Users, Building2, MoreHorizontal, Search } from 'lucide-react';
-import { upsertDepartment, deleteDepartment } from '../services/supabaseService';
+import { upsertDepartment, deleteDepartment } from '../services/apiService';
 
 interface DepartmentManagerProps {
   departments: Department[];

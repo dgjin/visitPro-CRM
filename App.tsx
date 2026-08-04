@@ -11,7 +11,7 @@ import { VoiceAssistant } from './components/VoiceAssistant';
 import { LoginPage } from './components/LoginPage'; // New
 import { ForceChangePasswordModal } from './components/ForceChangePasswordModal'; // New
 import { ViewState, Client, Visit, User, ClientStatus, Sentiment, CustomFieldDefinition, Department, Role } from './types';
-import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection, upsertUser, hashPassword } from './services/supabaseService';
+import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection, upsertUser, hashPassword } from './services/apiService';
 
 // Mock Data Definitions (Only used as fallback)
 const MOCK_ROLES: Role[] = [

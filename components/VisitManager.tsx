@@ -4,7 +4,7 @@ import { analyzeVisitNote, generateFollowUpEmail, transcribeAudio, organizeVoice
 import MarkdownRenderer from './MarkdownRenderer';
 import CopyButton from './CopyButton';
 import { IflytekStreamingSession, downsampleBuffer, IflytekError } from '../services/iflytekService';
-import { upsertVisit, deleteVisit } from '../services/supabaseService';
+import { upsertVisit, deleteVisit } from '../services/apiService';
 import { 
   Calendar, 
   Mic, 
@@ -145,7 +145,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   const [isGeneratingEmail, setIsGeneratingEmail] = useState(false);
   const [isOrganizing, setIsOrganizing] = useState(false);
   const [autoOrganizeEnabled, setAutoOrganizeEnabled] = useState(true); // 自动整理开关
-  const [selectedAiModel, setSelectedAiModel] = useState<AIModelType>('gemini');
+  const [selectedAiModel, setSelectedAiModel] = useState<AIModelType>('ollama');
   
   // Markdown Editor State
   const [isMarkdownPreview, setIsMarkdownPreview] = useState(false);
@@ -2278,6 +2278,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                   }}
                   title="选择分析模型"
                 >
+                  <option value="ollama">Ollama (本地)</option>
                   <option value="gemini">Gemini</option>
                   <option value="deepseek">DeepSeek</option>
                   <option value="spark">讯飞星火</option>

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, Role, Department, LoginHistory } from '../types';
 import { Plus, Edit2, Trash2, UserCog, X, Search, ChevronLeft, ChevronRight, Clock, History, Camera, Lock, Upload, User as UserIcon } from 'lucide-react';
-import { upsertUser, deleteUser, fetchLoginHistory, hashPassword } from '../services/supabaseService';
+import { upsertUser, deleteUser, fetchLoginHistory, hashPassword } from '../services/apiService';
 
 const ITEMS_PER_PAGE = 10;
 

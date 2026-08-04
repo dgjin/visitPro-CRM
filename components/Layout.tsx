@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ViewState, User, Role, Notification } from '../types';
-import { hashPassword } from '../services/supabaseService';
+import { hashPassword } from '../services/apiService';
 import { 
   LayoutDashboard, 
   Users, 

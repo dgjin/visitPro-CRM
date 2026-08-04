@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Client, ClientStatus, CustomFieldDefinition, Contact, Shareholder, Subsidiary, User, AIModelType } from '../types';
+import { Client, ClientStatus, ClientType, TypeProfile, AgreementInfo, ProjectInfo, CustomFieldDefinition, Contact, Shareholder, Subsidiary, User, AIModelType } from '../types';
 import { 
   Search, Plus, MapPin, Mail, Phone, Building, Briefcase, 
   X, Loader2, BarChart2, Users, Save, Edit2, Trash2, PieChart as PieIcon,
@@ -21,7 +21,10 @@ import {
   ArrowRight,
   Tag,
   Shield,
-  Filter
+  Filter,
+  Landmark,
+  FileText,
+  ClipboardCheck
 } from 'lucide-react';
 import { 
   PieChart, 
@@ -32,7 +35,7 @@ import {
   Legend 
 } from 'recharts';
 import { generateClientProfile } from '../services/geminiService';
-import { upsertClient, deleteClient } from '../services/supabaseService';
+import { upsertClient, deleteClient } from '../services/apiService';
 
 // 国标一级行业分类 (GB/T 4754)
 const NATIONAL_STANDARD_INDUSTRIES = [
@@ -60,6 +63,34 @@ const NATIONAL_STANDARD_INDUSTRIES = [
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 const ITEMS_PER_PAGE = 10;
+
+// ===== 客户类型相关选项（对应《客户营销清单》）=====
+const CLIENT_TYPES: ClientType[] = ['地方政府', '金融机构', '产业客户'];
+
+const CLIENT_TYPE_BADGE: Record<string, string> = {
+  '地方政府': 'badge-warning',
+  '金融机构': 'badge-info',
+  '产业客户': 'badge-success',
+};
+
+const ADMIN_LEVELS = ['正部级', '副部级', '正厅级', '副厅级', '正处级', '副处级'];
+
+const FIN_CATEGORIES = ['银行', '证券', '保险', '信托', '金融租赁', '其他'];
+
+const FIN_SUB_CATEGORIES = [
+  '国有大型商业银行-分行',
+  '全国性股份制商业银行-分行',
+  '政策性银行',
+  '城市商业银行',
+  '农村金融机构',
+  '寿险',
+  '财险',
+  '其他',
+];
+
+const ENT_CATEGORIES = ['省属国企', '市属国企', '央企', '民营', '外资', '高校全资企业', '其他'];
+
+const CREDIT_RATINGS = ['AAA', 'AA+', 'AA', 'AA-', 'A及以下', '无'];
 
 interface ClientManagerProps {
   clients: Client[];
@@ -275,8 +306,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
   onResetTrigger
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState<ClientType | ''>('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [activeTab, setActiveTab] = useState<'BASIC' | 'EQUITY' | 'CONTACTS'>('BASIC');
+  const [activeTab, setActiveTab] = useState<'BASIC' | 'PROFILE' | 'EQUITY' | 'CONTACTS'>('BASIC');
   const [currentPage, setCurrentPage] = useState(1);
   
   // States within Modal
@@ -299,7 +331,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // AI Model State
-  const [selectedAiModel, setSelectedAiModel] = useState<AIModelType>('gemini');
+  const [selectedAiModel, setSelectedAiModel] = useState<AIModelType>('ollama');
 
   // Load default model from local storage
   useEffect(() => {
@@ -337,10 +369,11 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
   const isReadOnly = selectedClient ? !canEdit(selectedClient) : false;
 
   const filteredClients = clients.filter(c => 
+    (typeFilter === '' || c.clientType === typeFilter) && (
     c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     c.industry.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.region.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.ownerName?.toLowerCase().includes(searchTerm.toLowerCase())
+    c.ownerName?.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
@@ -390,9 +423,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
 
   const handleBatchExport = () => {
       const selectedData = clients.filter(c => selectedIds.has(c.id));
-      const csvHeader = 'ID,Name,Industry,Status,Region,Owner\n';
+      const csvHeader = 'ID,Name,Type,Industry,Status,Region,Owner\n';
       const csvRows = selectedData.map(c => 
-          `${c.id},"${c.name}",${c.industry},${c.status},"${c.region}",${c.ownerName}`
+          `${c.id},"${c.name}",${c.clientType || ''},${c.industry},${c.status},"${c.region}",${c.ownerName}`
       ).join('\n');
       
       const blob = new Blob([csvHeader + csvRows], { type: 'text/csv;charset=utf-8;' });
@@ -406,6 +439,39 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
   };
 
   // --- Regular Client Handlers ---
+
+  // 更新类型专属信息项
+  const updateTypeProfile = (patch: Partial<TypeProfile>) => {
+    if (isReadOnly) return;
+    setSelectedClient(prev => prev ? {
+      ...prev,
+      typeProfile: { ...(prev.typeProfile || {}), ...patch }
+    } : null);
+  };
+
+  // 更新协议签署信息（客户层）
+  const updateAgreement = (patch: Partial<AgreementInfo>) => {
+    if (isReadOnly) return;
+    setSelectedClient(prev => prev ? {
+      ...prev,
+      typeProfile: {
+        ...(prev.typeProfile || {}),
+        agreement: { ...(prev.typeProfile?.agreement || {}), ...patch }
+      }
+    } : null);
+  };
+
+  // 更新落地项目信息（客户层）
+  const updateProject = (patch: Partial<ProjectInfo>) => {
+    if (isReadOnly) return;
+    setSelectedClient(prev => prev ? {
+      ...prev,
+      typeProfile: {
+        ...(prev.typeProfile || {}),
+        project: { ...(prev.typeProfile?.project || {}), ...patch }
+      }
+    } : null);
+  };
 
   const handleGenerateProfile = async () => {
     if (!selectedClient || isReadOnly) return;
@@ -442,6 +508,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       supplyChainInfo: "",
       tags: [],
       customFields: {},
+      typeProfile: { reportingUnit: '安徽省分公司' },
       ownerId: currentUser?.id,
       ownerName: currentUser?.name || "未知用户"
     };
@@ -469,6 +536,10 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       alert("客户名称不能为空");
       return;
     }
+    if (!selectedClient.clientType) {
+      alert("请选择客户类型（地方政府/金融机构/产业客户）");
+      return;
+    }
     
     setIsSaving(true);
     
@@ -478,9 +549,11 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
         name: selectedClient.name,
         industry: selectedClient.industry || '',
         status: selectedClient.status || ClientStatus.Lead,
+        clientType: selectedClient.clientType,
         region: selectedClient.region || '',
         contacts: selectedClient.contacts || [],
         customFields: selectedClient.customFields || {},
+        typeProfile: selectedClient.typeProfile || {},
         ownerId: selectedClient.ownerId,
         ownerName: selectedClient.ownerName,
         
@@ -648,6 +721,14 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                   onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                />
             </div>
+            <select
+               className="input py-2.5 text-sm w-36"
+               value={typeFilter}
+               onChange={(e) => { setTypeFilter(e.target.value as ClientType | ''); setCurrentPage(1); }}
+            >
+               <option value="">全部类型</option>
+               {CLIENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
             <button 
                onClick={handleAddMockClient}
                className="btn btn-primary"
@@ -672,6 +753,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                           </button>
                       </th>
                       <th>客户名称</th>
+                      <th>客户类型</th>
                       <th>行业/地区</th>
                       <th>主要联系人</th>
                       <th>状态</th>
@@ -702,6 +784,13 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                   </div>
                                   <div className="font-semibold text-[var(--text-primary)]">{client.name}</div>
                                </div>
+                            </td>
+                            <td>
+                               {client.clientType ? (
+                                  <span className={`badge ${CLIENT_TYPE_BADGE[client.clientType] || ''}`}>{client.clientType}</span>
+                               ) : (
+                                  <span className="badge">未分类</span>
+                               )}
                             </td>
                             <td>
                                <div className="flex flex-col gap-1">
@@ -750,7 +839,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                    })}
                    {paginatedClients.length === 0 && (
                       <tr>
-                         <td colSpan={7} className="py-16 text-center">
+                         <td colSpan={8} className="py-16 text-center">
                             <div className="flex flex-col items-center justify-center text-[var(--text-tertiary)]">
                                <Users className="w-12 h-12 mb-3 opacity-20" />
                                <p className="text-sm">未找到相关客户</p>
@@ -847,13 +936,14 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                           </div>
                       )}
                       <div className="flex bg-[var(--bg-tertiary)] p-1 rounded-xl">
-                         {(['BASIC', 'EQUITY', 'CONTACTS'] as const).map(tab => (
+                         {(['BASIC', 'PROFILE', 'EQUITY', 'CONTACTS'] as const).map(tab => (
                             <button
                                key={tab}
                                onClick={() => setActiveTab(tab)}
                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab ? 'bg-[var(--bg-primary)] text-[var(--primary-600)] shadow-sm' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
                             >
                                {tab === 'BASIC' && '基本信息'}
+                               {tab === 'PROFILE' && '企业画像与财务分析'}
                                {tab === 'EQUITY' && '股权画像'}
                                {tab === 'CONTACTS' && '联系人'}
                             </button>
@@ -881,6 +971,466 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                 {/* Modal Content */}
                 <div className="flex-1 overflow-hidden bg-[var(--bg-secondary)] relative">
                    {activeTab === 'BASIC' && (
+                      <div className="h-full overflow-y-auto p-6">
+                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+                               <div className="card p-5">
+                                  <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                                    <Building className="w-4 h-4 text-[var(--primary-500)]" />
+                                    基础资料
+                                  </h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">客户类型 <span className="text-[var(--danger)]">*</span></label>
+                                        <select 
+                                           className="input"
+                                           value={selectedClient.clientType || ''}
+                                           onChange={e => setSelectedClient({...selectedClient, clientType: (e.target.value || undefined) as ClientType | undefined})}
+                                           disabled={isReadOnly}
+                                        >
+                                           <option value="">请选择客户类型</option>
+                                           {CLIENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                     </div>
+                                     {selectedClient.clientType !== '地方政府' && (
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所属行业</label>
+                                        <select 
+                                           className="input"
+                                           value={selectedClient.industry}
+                                           onChange={e => setSelectedClient({...selectedClient, industry: e.target.value})}
+                                           disabled={isReadOnly}
+                                        >
+                                           {NATIONAL_STANDARD_INDUSTRIES.map(ind => (
+                                              <option key={ind} value={ind}>{ind}</option>
+                                           ))}
+                                        </select>
+                                     </div>
+                                     )}
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所在地区</label>
+                                        <input 
+                                           className="input"
+                                           value={selectedClient.region}
+                                           onChange={e => setSelectedClient({...selectedClient, region: e.target.value})}
+                                           placeholder="例如：上海, 浦东新区"
+                                           disabled={isReadOnly}
+                                        />
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">客户状态</label>
+                                        <select 
+                                           className="input"
+                                           value={selectedClient.status}
+                                           onChange={e => setSelectedClient({...selectedClient, status: e.target.value as ClientStatus})}
+                                           disabled={isReadOnly}
+                                        >
+                                           {Object.values(ClientStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">负责人</label>
+                                        <div className="flex items-center p-2.5 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)]">
+                                            <UserIcon className="w-4 h-4 mr-2 text-[var(--text-tertiary)]" />
+                                            {selectedClient.ownerName || 'Unknown'}
+                                        </div>
+                                     </div>
+                                  </div>
+                               </div>
+
+                               {/* 类型专属信息 */}
+                               {selectedClient.clientType && (
+                               <div className="card p-5">
+                                  <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                                    <Landmark className="w-4 h-4 text-[var(--primary-500)]" />
+                                    {selectedClient.clientType === '地方政府' ? '政府专属信息' : selectedClient.clientType === '金融机构' ? '金融机构专属信息' : '产业客户专属信息'}
+                                  </h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     {selectedClient.clientType === '地方政府' && (
+                                        <>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">行政级别</label>
+                                              <input
+                                                 className="input"
+                                                 list="admin-level-options"
+                                                 value={selectedClient.typeProfile?.adminLevel || ''}
+                                                 onChange={e => updateTypeProfile({ adminLevel: e.target.value })}
+                                                 placeholder="例如：正厅级"
+                                                 disabled={isReadOnly}
+                                              />
+                                              <datalist id="admin-level-options">
+                                                 {ADMIN_LEVELS.map(l => <option key={l} value={l} />)}
+                                              </datalist>
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">上报经营单位</label>
+                                              <input
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.reportingUnit || ''}
+                                                 onChange={e => updateTypeProfile({ reportingUnit: e.target.value })}
+                                                 placeholder="例如：安徽省分公司"
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                        </>
+                                     )}
+
+                                     {selectedClient.clientType === '金融机构' && (
+                                        <>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">客户类别</label>
+                                              <select
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.finCategory || ''}
+                                                 onChange={e => updateTypeProfile({ finCategory: e.target.value })}
+                                                 disabled={isReadOnly}
+                                              >
+                                                 <option value="">请选择</option>
+                                                 {FIN_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                              </select>
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">细分类别</label>
+                                              <select
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.finSubCategory || ''}
+                                                 onChange={e => updateTypeProfile({ finSubCategory: e.target.value })}
+                                                 disabled={isReadOnly}
+                                              >
+                                                 <option value="">请选择</option>
+                                                 {[...(selectedClient.typeProfile?.finSubCategory && !FIN_SUB_CATEGORIES.includes(selectedClient.typeProfile.finSubCategory) ? [selectedClient.typeProfile.finSubCategory] : []), ...FIN_SUB_CATEGORIES].map(c => <option key={c} value={c}>{c}</option>)}
+                                              </select>
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">行业排名（如有）</label>
+                                              <input
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.finRank || ''}
+                                                 onChange={e => updateTypeProfile({ finRank: e.target.value })}
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                        </>
+                                     )}
+
+                                     {selectedClient.clientType === '产业客户' && (
+                                        <>
+                                           <div className="md:col-span-2">
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所属集团/单位/个人</label>
+                                              <input
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.groupOwner || ''}
+                                                 onChange={e => updateTypeProfile({ groupOwner: e.target.value })}
+                                                 placeholder="股权穿透至最上层的法人主体或自然人"
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">客户类别</label>
+                                              <select
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.entCategory || ''}
+                                                 onChange={e => updateTypeProfile({ entCategory: e.target.value })}
+                                                 disabled={isReadOnly}
+                                              >
+                                                 <option value="">请选择</option>
+                                                 {[...(selectedClient.typeProfile?.entCategory && !ENT_CATEGORIES.includes(selectedClient.typeProfile.entCategory) ? [selectedClient.typeProfile.entCategory] : []), ...ENT_CATEGORIES].map(c => <option key={c} value={c}>{c}</option>)}
+                                              </select>
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所属行业门类</label>
+                                              <select
+                                                 className="input"
+                                                 value={selectedClient.industry}
+                                                 onChange={e => {
+                                                    const v = e.target.value;
+                                                    setSelectedClient(prev => prev ? {
+                                                       ...prev,
+                                                       industry: v,
+                                                       typeProfile: { ...(prev.typeProfile || {}), industryCategory: v }
+                                                    } : null);
+                                                 }}
+                                                 disabled={isReadOnly}
+                                              >
+                                                 {NATIONAL_STANDARD_INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
+                                              </select>
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所属行业小类</label>
+                                              <input
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.industrySub || ''}
+                                                 onChange={e => updateTypeProfile({ industrySub: e.target.value })}
+                                                 placeholder="国民经济行业分类第四层"
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">行业代码</label>
+                                              <input
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.industryCode || ''}
+                                                 onChange={e => updateTypeProfile({ industryCode: e.target.value })}
+                                                 placeholder="如 L7212"
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">主体评级</label>
+                                              <select
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.creditRating || ''}
+                                                 onChange={e => updateTypeProfile({ creditRating: e.target.value })}
+                                                 disabled={isReadOnly}
+                                              >
+                                                 <option value="">请选择</option>
+                                                 {[...(selectedClient.typeProfile?.creditRating && !CREDIT_RATINGS.includes(selectedClient.typeProfile.creditRating) ? [selectedClient.typeProfile.creditRating] : []), ...CREDIT_RATINGS].map(r => <option key={r} value={r}>{r}</option>)}
+                                              </select>
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">世界/中企/民企500强排名</label>
+                                              <input
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.top500Rank || ''}
+                                                 onChange={e => updateTypeProfile({ top500Rank: e.target.value })}
+                                                 placeholder="如：中企500强第193位"
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                        </>
+                                     )}
+                                  </div>
+                               </div>
+                               )}
+
+                               {/* 工商基础信息（企业类客户） */}
+                               {selectedClient.clientType && selectedClient.clientType !== '地方政府' && (
+                               <div className="card p-5">
+                                  <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                                    <Building className="w-4 h-4 text-[var(--primary-500)]" />
+                                    工商基础信息
+                                  </h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">统一社会信用代码</label>
+                                        <input
+                                           className="input"
+                                           value={selectedClient.typeProfile?.creditCode || ''}
+                                           onChange={e => updateTypeProfile({ creditCode: e.target.value })}
+                                           disabled={isReadOnly}
+                                        />
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">上市代码</label>
+                                        <input
+                                           className="input"
+                                           value={selectedClient.typeProfile?.stockCode || ''}
+                                           onChange={e => updateTypeProfile({ stockCode: e.target.value })}
+                                           placeholder="如 601988.SH"
+                                           disabled={isReadOnly}
+                                        />
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">成立时间</label>
+                                        <input
+                                           type="date"
+                                           className="input"
+                                           value={selectedClient.typeProfile?.foundedDate?.slice(0, 10) || ''}
+                                           onChange={e => updateTypeProfile({ foundedDate: e.target.value })}
+                                           disabled={isReadOnly}
+                                        />
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">第一大股东</label>
+                                        <input
+                                           className="input"
+                                           value={selectedClient.typeProfile?.majorShareholder || ''}
+                                           onChange={e => updateTypeProfile({ majorShareholder: e.target.value })}
+                                           disabled={isReadOnly}
+                                        />
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">第一大股东持股比例</label>
+                                        <input
+                                           className="input"
+                                           value={selectedClient.typeProfile?.majorShareholderRatio || ''}
+                                           onChange={e => updateTypeProfile({ majorShareholderRatio: e.target.value })}
+                                           placeholder="如 58.59% 或 100%（国有独资）"
+                                           disabled={isReadOnly}
+                                        />
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">上报经营单位</label>
+                                        <input
+                                           className="input"
+                                           value={selectedClient.typeProfile?.reportingUnit || ''}
+                                           onChange={e => updateTypeProfile({ reportingUnit: e.target.value })}
+                                           placeholder="例如：安徽省分公司"
+                                           disabled={isReadOnly}
+                                        />
+                                     </div>
+                                  </div>
+                               </div>
+                               )}
+
+                               {/* 协议与落地项目（客户层） */}
+                               <div className="card p-5">
+                                  <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                                    <ClipboardCheck className="w-4 h-4 text-[var(--primary-500)]" />
+                                    协议与落地项目
+                                  </h4>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">是否签署相关协议</label>
+                                        <div className="flex gap-2">
+                                           {[true, false].map(v => (
+                                              <button
+                                                 key={String(v)}
+                                                 type="button"
+                                                 disabled={isReadOnly}
+                                                 onClick={() => updateAgreement({ signed: v })}
+                                                 className={`px-4 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                                                    selectedClient.typeProfile?.agreement?.signed === v
+                                                       ? 'bg-[var(--primary-600)] text-white border-[var(--primary-600)]'
+                                                       : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border)] hover:bg-[var(--border)]'
+                                                 }`}
+                                              >
+                                                 {v ? '是' : '否'}
+                                              </button>
+                                           ))}
+                                        </div>
+                                     </div>
+                                     {selectedClient.typeProfile?.agreement?.signed && (
+                                        <>
+                                           <div className="md:col-span-2">
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">协议签署主体</label>
+                                              <input
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.agreement?.party || ''}
+                                                 onChange={e => updateAgreement({ party: e.target.value })}
+                                                 placeholder="中国东方/XX分公司/XX子公司"
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">协议签署时间</label>
+                                              <input
+                                                 type="date"
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.agreement?.signDate?.slice(0, 10) || ''}
+                                                 onChange={e => updateAgreement({ signDate: e.target.value })}
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">协议到期时间</label>
+                                              <input
+                                                 type="date"
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.agreement?.expireDate?.slice(0, 10) || ''}
+                                                 onChange={e => updateAgreement({ expireDate: e.target.value })}
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                        </>
+                                     )}
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">是否有落地项目</label>
+                                        <div className="flex gap-2">
+                                           {[true, false].map(v => (
+                                              <button
+                                                 key={String(v)}
+                                                 type="button"
+                                                 disabled={isReadOnly}
+                                                 onClick={() => updateProject({ landed: v })}
+                                                 className={`px-4 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                                                    selectedClient.typeProfile?.project?.landed === v
+                                                       ? 'bg-[var(--primary-600)] text-white border-[var(--primary-600)]'
+                                                       : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border)] hover:bg-[var(--border)]'
+                                                 }`}
+                                              >
+                                                 {v ? '是' : '否'}
+                                              </button>
+                                           ))}
+                                        </div>
+                                     </div>
+                                     {selectedClient.typeProfile?.project?.landed && (
+                                        <>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">项目编号</label>
+                                              <input
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.project?.projectNo || ''}
+                                                 onChange={e => updateProject({ projectNo: e.target.value })}
+                                                 placeholder="多个编号用分号分隔"
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                           <div>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">落地规模（万元）</label>
+                                              <input
+                                                 type="number"
+                                                 className="input"
+                                                 value={selectedClient.typeProfile?.project?.scale ?? ''}
+                                                 onChange={e => updateProject({ scale: e.target.value === '' ? undefined : Number(e.target.value) })}
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                           <div className="md:col-span-2">
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">项目名称</label>
+                                              <textarea
+                                                 className="input"
+                                                 rows={2}
+                                                 value={selectedClient.typeProfile?.project?.projectName || ''}
+                                                 onChange={e => updateProject({ projectName: e.target.value })}
+                                                 disabled={isReadOnly}
+                                              />
+                                           </div>
+                                        </>
+                                     )}
+                                  </div>
+                               </div>
+
+                               {/* Custom Fields */}
+                               {fieldDefinitions.length > 0 && (
+                                  <div className="card p-5">
+                                     <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                                       <Filter className="w-4 h-4 text-[var(--primary-500)]" />
+                                       自定义信息
+                                     </h4>
+                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {fieldDefinitions.map(field => (
+                                           <div key={field.id}>
+                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">{field.label}</label>
+                                              {field.type === 'select' ? (
+                                                 <select
+                                                    className="input"
+                                                    value={selectedClient.customFields?.[field.key] || ''}
+                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value, field.type)}
+                                                    disabled={isReadOnly}
+                                                 >
+                                                    <option value="">请选择</option>
+                                                    {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                                 </select>
+                                              ) : (
+                                                 <input 
+                                                    type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+                                                    className="input"
+                                                    value={selectedClient.customFields?.[field.key] || ''}
+                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value, field.type)}
+                                                    disabled={isReadOnly}
+                                                 />
+                                              )}
+                                           </div>
+                                        ))}
+                                     </div>
+                                  </div>
+                               )}
+                            </div>
+                      </div>
+                   )}
+
+                   {/* Profile Tab: 企业画像与财务分析 */}
+                   {activeTab === 'PROFILE' && (
                       <div className="h-full overflow-y-auto p-6">
                          {/* Tags Section */}
                          <div className="mb-6 flex flex-wrap gap-2 animate-fade-in-down">
@@ -924,172 +1474,79 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                             )}
                          </div>
 
-                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            {/* Basic Fields */}
-                            <div className="space-y-6 lg:col-span-1">
-                               <div className="card p-5">
-                                  <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
-                                    <Building className="w-4 h-4 text-[var(--primary-500)]" />
-                                    基础资料
-                                  </h4>
-                                  <div className="space-y-4">
-                                     <div>
-                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所属行业</label>
-                                        <select 
-                                           className="input"
-                                           value={selectedClient.industry}
-                                           onChange={e => setSelectedClient({...selectedClient, industry: e.target.value})}
-                                           disabled={isReadOnly}
-                                        >
-                                           {NATIONAL_STANDARD_INDUSTRIES.map(ind => (
-                                              <option key={ind} value={ind}>{ind}</option>
-                                           ))}
-                                        </select>
-                                     </div>
-                                     <div>
-                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所在地区</label>
-                                        <input 
-                                           className="input"
-                                           value={selectedClient.region}
-                                           onChange={e => setSelectedClient({...selectedClient, region: e.target.value})}
-                                           placeholder="例如：上海, 浦东新区"
-                                           disabled={isReadOnly}
-                                        />
-                                     </div>
-                                     <div>
-                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">客户状态</label>
-                                        <select 
-                                           className="input"
-                                           value={selectedClient.status}
-                                           onChange={e => setSelectedClient({...selectedClient, status: e.target.value as ClientStatus})}
-                                           disabled={isReadOnly}
-                                        >
-                                           {Object.values(ClientStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                                        </select>
-                                     </div>
-                                     <div>
-                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">负责人</label>
-                                        <div className="flex items-center p-2.5 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)]">
-                                            <UserIcon className="w-4 h-4 mr-2 text-[var(--text-tertiary)]" />
-                                            {selectedClient.ownerName || 'Unknown'}
-                                        </div>
-                                     </div>
-                                  </div>
-                               </div>
-
-                               {/* Custom Fields */}
-                               {fieldDefinitions.length > 0 && (
-                                  <div className="card p-5">
-                                     <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
-                                       <Filter className="w-4 h-4 text-[var(--primary-500)]" />
-                                       自定义信息
-                                     </h4>
-                                     <div className="space-y-4">
-                                        {fieldDefinitions.map(field => (
-                                           <div key={field.id}>
-                                              <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">{field.label}</label>
-                                              {field.type === 'select' ? (
-                                                 <select
-                                                    className="input"
-                                                    value={selectedClient.customFields?.[field.key] || ''}
-                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value, field.type)}
-                                                    disabled={isReadOnly}
-                                                 >
-                                                    <option value="">请选择</option>
-                                                    {field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                                 </select>
-                                              ) : (
-                                                 <input 
-                                                    type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-                                                    className="input"
-                                                    value={selectedClient.customFields?.[field.key] || ''}
-                                                    onChange={e => handleUpdateCustomField(field.key, e.target.value, field.type)}
-                                                    disabled={isReadOnly}
-                                                 />
-                                              )}
-                                           </div>
-                                        ))}
-                                     </div>
-                                  </div>
+                         <div className="card p-6 flex flex-col">
+                            <div className="flex justify-between items-center mb-5">
+                               <h4 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                                  <BarChart2 className="w-4 h-4 text-[var(--primary-500)]" />
+                                  企业画像与财务分析
+                               </h4>
+                               {!isReadOnly && (
+                                   <div className="flex items-center gap-2">
+                                      <select
+                                          value={selectedAiModel}
+                                          onChange={(e) => setSelectedAiModel(e.target.value as AIModelType)}
+                                          className="input py-1.5 px-3 text-xs w-32"
+                                      >
+                                          <option value="ollama">Ollama (本地)</option>
+                                          <option value="gemini">Gemini</option>
+                                          <option value="deepseek">DeepSeek</option>
+                                          <option value="spark">讯飞星火</option>
+                                          <option value="kimi">Kimi</option>
+                                      </select>
+                                      <button 
+                                          onClick={handleGenerateProfile}
+                                          disabled={isProfileLoading}
+                                          className="btn btn-primary text-xs py-1.5"
+                                      >
+                                          {isProfileLoading ? <Loader2 className="w-3 h-3 animate-spin"/> : <RefreshCw className="w-3 h-3"/>}
+                                          生成画像
+                                      </button>
+                                   </div>
                                )}
                             </div>
-
-                            {/* AI Analysis Section */}
-                            <div className="lg:col-span-2 space-y-6">
-                               <div className="card p-6 h-full flex flex-col">
-                                  <div className="flex justify-between items-center mb-5">
-                                     <h4 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
-                                        <BarChart2 className="w-4 h-4 text-[var(--primary-500)]" />
-                                        企业画像与财务分析
-                                     </h4>
-                                     {!isReadOnly && (
-                                         <div className="flex items-center gap-2">
-                                            <select
-                                                value={selectedAiModel}
-                                                onChange={(e) => setSelectedAiModel(e.target.value as AIModelType)}
-                                                className="input py-1.5 px-3 text-xs w-32"
-                                            >
-                                                <option value="gemini">Gemini</option>
-                                                <option value="deepseek">DeepSeek</option>
-                                                <option value="spark">讯飞星火</option>
-                                                <option value="kimi">Kimi</option>
-                                            </select>
-                                            <button 
-                                                onClick={handleGenerateProfile}
-                                                disabled={isProfileLoading}
-                                                className="btn btn-primary text-xs py-1.5"
-                                            >
-                                                {isProfileLoading ? <Loader2 className="w-3 h-3 animate-spin"/> : <RefreshCw className="w-3 h-3"/>}
-                                                生成画像
-                                            </button>
-                                         </div>
-                                     )}
+                            
+                            <div className="grid grid-cols-1 gap-5">
+                               <div className={`transition-all ${fullscreenSection === 'FINANCIAL' ? 'fixed inset-4 z-50 bg-[var(--bg-primary)] shadow-2xl p-6 rounded-2xl border border-[var(--border)]' : 'relative h-80 bg-[var(--bg-secondary)] p-5 rounded-xl border border-[var(--border-light)]'}`}>
+                                  <div className="flex justify-between items-center mb-3">
+                                     <h5 className="font-semibold text-[var(--text-primary)] text-sm flex items-center gap-2">
+                                        <PieIcon className="w-4 h-4 text-[var(--primary-500)]" />
+                                        财务分析
+                                     </h5>
+                                     <button 
+                                        onClick={() => setFullscreenSection(fullscreenSection === 'FINANCIAL' ? null : 'FINANCIAL')}
+                                        className="p-1.5 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
+                                     >
+                                        {fullscreenSection === 'FINANCIAL' ? <Minimize2 className="w-4 h-4 text-[var(--text-tertiary)]"/> : <Maximize2 className="w-4 h-4 text-[var(--text-tertiary)]"/>}
+                                     </button>
                                   </div>
-                                  
-                                  <div className="grid grid-cols-1 gap-5 flex-1">
-                                     <div className={`relative transition-all ${fullscreenSection === 'FINANCIAL' ? 'fixed inset-4 z-50 bg-[var(--bg-primary)] shadow-2xl p-6 rounded-2xl border border-[var(--border)]' : 'bg-[var(--bg-secondary)] p-5 rounded-xl border border-[var(--border-light)]'}`}>
-                                        <div className="flex justify-between items-center mb-3">
-                                           <h5 className="font-semibold text-[var(--text-primary)] text-sm flex items-center gap-2">
-                                              <PieIcon className="w-4 h-4 text-[var(--primary-500)]" />
-                                              财务分析
-                                           </h5>
-                                           <button 
-                                              onClick={() => setFullscreenSection(fullscreenSection === 'FINANCIAL' ? null : 'FINANCIAL')}
-                                              className="p-1.5 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
-                                           >
-                                              {fullscreenSection === 'FINANCIAL' ? <Minimize2 className="w-4 h-4 text-[var(--text-tertiary)]"/> : <Maximize2 className="w-4 h-4 text-[var(--text-tertiary)]"/>}
-                                           </button>
-                                        </div>
-                                        <textarea 
-                                           className="w-full h-[calc(100%-2.5rem)] bg-transparent resize-none focus:outline-none text-sm text-[var(--text-secondary)] leading-relaxed disabled:text-[var(--text-tertiary)]"
-                                           value={selectedClient.financialAnalysis || ''}
-                                           onChange={e => setSelectedClient({...selectedClient, financialAnalysis: e.target.value})}
-                                           placeholder="点击生成画像获取财务分析..."
-                                           disabled={isReadOnly}
-                                        />
-                                     </div>
-                                     <div className={`relative transition-all ${fullscreenSection === 'SUPPLY' ? 'fixed inset-4 z-50 bg-[var(--bg-primary)] shadow-2xl p-6 rounded-2xl border border-[var(--border)]' : 'bg-[var(--bg-secondary)] p-5 rounded-xl border border-[var(--border-light)]'}`}>
-                                        <div className="flex justify-between items-center mb-3">
-                                           <h5 className="font-semibold text-[var(--text-primary)] text-sm flex items-center gap-2">
-                                              <Share2 className="w-4 h-4 text-[var(--success)]" />
-                                              供应链信息
-                                           </h5>
-                                           <button 
-                                              onClick={() => setFullscreenSection(fullscreenSection === 'SUPPLY' ? null : 'SUPPLY')}
-                                              className="p-1.5 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
-                                           >
-                                              {fullscreenSection === 'SUPPLY' ? <Minimize2 className="w-4 h-4 text-[var(--text-tertiary)]"/> : <Maximize2 className="w-4 h-4 text-[var(--text-tertiary)]"/>}
-                                           </button>
-                                        </div>
-                                        <textarea 
-                                           className="w-full h-[calc(100%-2.5rem)] bg-transparent resize-none focus:outline-none text-sm text-[var(--text-secondary)] leading-relaxed disabled:text-[var(--text-tertiary)]"
-                                           value={selectedClient.supplyChainInfo || ''}
-                                           onChange={e => setSelectedClient({...selectedClient, supplyChainInfo: e.target.value})}
-                                           placeholder="点击生成画像获取供应链信息..."
-                                           disabled={isReadOnly}
-                                        />
-                                     </div>
+                                  <textarea 
+                                     className="w-full h-[calc(100%-2.5rem)] bg-transparent resize-none focus:outline-none text-sm text-[var(--text-secondary)] leading-relaxed disabled:text-[var(--text-tertiary)]"
+                                     value={selectedClient.financialAnalysis || ''}
+                                     onChange={e => setSelectedClient({...selectedClient, financialAnalysis: e.target.value})}
+                                     placeholder="点击生成画像获取财务分析..."
+                                     disabled={isReadOnly}
+                                  />
+                               </div>
+                               <div className={`transition-all ${fullscreenSection === 'SUPPLY' ? 'fixed inset-4 z-50 bg-[var(--bg-primary)] shadow-2xl p-6 rounded-2xl border border-[var(--border)]' : 'relative h-80 bg-[var(--bg-secondary)] p-5 rounded-xl border border-[var(--border-light)]'}`}>
+                                  <div className="flex justify-between items-center mb-3">
+                                     <h5 className="font-semibold text-[var(--text-primary)] text-sm flex items-center gap-2">
+                                        <Share2 className="w-4 h-4 text-[var(--success)]" />
+                                        供应链信息
+                                     </h5>
+                                     <button 
+                                        onClick={() => setFullscreenSection(fullscreenSection === 'SUPPLY' ? null : 'SUPPLY')}
+                                        className="p-1.5 hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors"
+                                     >
+                                        {fullscreenSection === 'SUPPLY' ? <Minimize2 className="w-4 h-4 text-[var(--text-tertiary)]"/> : <Maximize2 className="w-4 h-4 text-[var(--text-tertiary)]"/>}
+                                     </button>
                                   </div>
+                                  <textarea 
+                                     className="w-full h-[calc(100%-2.5rem)] bg-transparent resize-none focus:outline-none text-sm text-[var(--text-secondary)] leading-relaxed disabled:text-[var(--text-tertiary)]"
+                                     value={selectedClient.supplyChainInfo || ''}
+                                     onChange={e => setSelectedClient({...selectedClient, supplyChainInfo: e.target.value})}
+                                     placeholder="点击生成画像获取供应链信息..."
+                                     disabled={isReadOnly}
+                                  />
                                </div>
                             </div>
                          </div>

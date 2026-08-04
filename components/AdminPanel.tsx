@@ -5,8 +5,9 @@ import {
   Eye, EyeOff, Sparkles, Server, FileJson, ChevronRight, Save,
   Key, Cloud, Lock, Globe, Zap, Layers
 } from 'lucide-react';
-import { getStoredConfig, saveConfig, initSupabase, reloadSchemaCache } from '../services/supabaseService';
+import { getStoredConfig, saveConfig, checkConnection, reloadSchemaCache } from '../services/apiService';
 import { getIflytekConfig, saveIflytekConfig } from '../services/iflytekService';
+import { fetchOllamaModels, DEFAULT_OLLAMA_MODEL } from '../services/geminiService';
 import { CustomFieldDefinition, EntityType, FieldType, AIModelType } from '../types';
 
 interface AdminPanelProps {
@@ -17,6 +18,7 @@ interface AdminPanelProps {
 
 const AI_MODEL_KEY = 'visitpro_ai_model';
 const DEEPSEEK_KEY_KEY = 'visitpro_deepseek_key';
+const OLLAMA_MODEL_KEY = 'visitpro_ollama_model';
 
 // CSS Variables for the design system
 const cssVariables = {
@@ -103,11 +105,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isReloadingCache, setIsReloadingCache] = useState(false);
   
   // AI Config State
-  const [aiModel, setAiModel] = useState<AIModelType>('gemini');
+  const [aiModel, setAiModel] = useState<AIModelType>('ollama');
   const [deepseekKey, setDeepseekKey] = useState('');
   const [showDeepseekKey, setShowDeepseekKey] = useState(false);
   const [kimiKey, setKimiKey] = useState('');
   const [showKimiKey, setShowKimiKey] = useState(false);
+
+  // Ollama State
+  const [ollamaModel, setOllamaModel] = useState(DEFAULT_OLLAMA_MODEL);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaStatus, setOllamaStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isLoadingOllamaModels, setIsLoadingOllamaModels] = useState(false);
   
   // iFlytek State
   const [iflytekAppId, setIflytekAppId] = useState('');
@@ -150,13 +158,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
 
     // Load AI Config
-    setAiModel((localStorage.getItem(AI_MODEL_KEY) as AIModelType) || 'gemini');
+    setAiModel((localStorage.getItem(AI_MODEL_KEY) as AIModelType) || 'ollama');
     if (!isDeepSeekEnvConfigured) {
         setDeepseekKey(localStorage.getItem(DEEPSEEK_KEY_KEY) || '');
     }
     if (!isKimiEnvConfigured) {
         setKimiKey(localStorage.getItem('visitpro_kimi_key') || '');
     }
+    // Load Ollama Config
+    setOllamaModel(localStorage.getItem(OLLAMA_MODEL_KEY) || DEFAULT_OLLAMA_MODEL);
+    loadOllamaModels();
   }, [isSupabaseEnvConfigured, isIflytekEnvConfigured, isDeepSeekEnvConfigured, isKimiEnvConfigured]);
 
   // Reset form when switching tabs
@@ -172,20 +183,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleSaveSupabase = async () => {
-    saveConfig(sbUrl, sbKey);
-    const client = initSupabase();
-    if (client) {
-      const { error } = await client.from('clients').select('id').limit(1);
-      if (!error) {
-        setConnectionStatus('success');
-        if (onConfigSave) {
-          onConfigSave();
-        }
-      } else {
-        console.error(error);
-        setConnectionStatus('error');
+    // 本地 MySQL 模式：连接配置在 server/.env，这里仅做连通性检测
+    const result = await checkConnection();
+    if (result.success) {
+      setConnectionStatus('success');
+      if (onConfigSave) {
+        onConfigSave();
       }
     } else {
+      console.error(result.message);
       setConnectionStatus('error');
     }
   };
@@ -219,8 +225,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     alert("科大讯飞配置已保存");
   };
 
+  const loadOllamaModels = async () => {
+    setIsLoadingOllamaModels(true);
+    setOllamaStatus(null);
+    try {
+      const models = await fetchOllamaModels();
+      setOllamaModels(models);
+      setOllamaStatus({ type: 'success', text: `Ollama 已连接，检测到 ${models.length} 个本地模型` });
+    } catch (e: any) {
+      setOllamaModels([]);
+      setOllamaStatus({ type: 'error', text: e.message || '无法连接 Ollama 服务' });
+    } finally {
+      setIsLoadingOllamaModels(false);
+    }
+  };
+
   const handleSaveAIConfig = () => {
       localStorage.setItem(AI_MODEL_KEY, aiModel);
+      localStorage.setItem(OLLAMA_MODEL_KEY, ollamaModel);
       if (!isDeepSeekEnvConfigured) {
           localStorage.setItem(DEEPSEEK_KEY_KEY, deepseekKey.trim());
       }
@@ -290,6 +312,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const getModelIcon = (model: AIModelType) => {
     switch (model) {
+      case 'ollama': return <Server className="w-4 h-4" style={{ color: cssVariables.success }} />;
       case 'gemini': return <Sparkles className="w-4 h-4" style={{ color: cssVariables.info }} />;
       case 'deepseek': return <BrainCircuit className="w-4 h-4" style={{ color: cssVariables.primary }} />;
       case 'spark': return <Zap className="w-4 h-4" style={{ color: cssVariables.warning }} />;
@@ -300,6 +323,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const getModelLabel = (model: AIModelType) => {
     switch (model) {
+      case 'ollama': return 'Ollama (本地)';
       case 'gemini': return 'Google Gemini';
       case 'deepseek': return 'DeepSeek';
       case 'spark': return '讯飞星火';
@@ -410,8 +434,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <label className="block text-sm font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>
                 选择默认分析模型
               </label>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                {(['gemini', 'deepseek', 'spark', 'kimi'] as AIModelType[]).map((model) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                {(['ollama', 'gemini', 'deepseek', 'spark', 'kimi'] as AIModelType[]).map((model) => (
                   <button
                     key={model}
                     onClick={() => setAiModel(model)}
@@ -445,6 +469,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {getModelLabel(model)}
                     </div>
                     <div className="text-xs mt-1" style={{ color: cssVariables.textMuted }}>
+                      {model === 'ollama' && '本地部署 · 离线可用'}
                       {model === 'gemini' && 'Google Gemini 3 Flash'}
                       {model === 'deepseek' && 'DeepSeek V3'}
                       {model === 'spark' && '讯飞星火 Spark Desk'}
@@ -454,6 +479,66 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 ))}
               </div>
             </div>
+
+            {/* Ollama Configuration */}
+            {aiModel === 'ollama' && (
+              <div 
+                className="p-4 animate-fade-in-down"
+                style={{ 
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)'
+                }}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium flex items-center" style={{ color: 'var(--text-secondary)' }}>
+                    <Server className="w-4 h-4 mr-2" />
+                    Ollama 本地模型 (localhost:11434)
+                  </label>
+                  <button
+                    onClick={loadOllamaModels}
+                    disabled={isLoadingOllamaModels}
+                    className="text-xs flex items-center gap-1 px-2 py-1 transition-colors"
+                    style={{ color: 'var(--primary-600)', background: 'var(--primary-50)', borderRadius: 'var(--radius-sm)' }}
+                  >
+                    {isLoadingOllamaModels ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    刷新模型列表
+                  </button>
+                </div>
+                <select
+                  value={ollamaModel}
+                  onChange={(e) => setOllamaModel(e.target.value)}
+                  className="w-full p-2 text-sm outline-none"
+                  style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: 'var(--text-primary)'
+                  }}
+                >
+                  {/* 确保当前配置值始终在下拉列表中 */}
+                  {ollamaModels.length === 0 && !ollamaModel && (
+                    <option value={DEFAULT_OLLAMA_MODEL}>{DEFAULT_OLLAMA_MODEL}</option>
+                  )}
+                  {ollamaModel && !ollamaModels.includes(ollamaModel) && (
+                    <option value={ollamaModel}>{ollamaModel}</option>
+                  )}
+                  {ollamaModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                {ollamaStatus && (
+                  <div className="mt-3 text-xs flex items-center gap-1.5"
+                    style={{ color: ollamaStatus.type === 'success' ? cssVariables.success : cssVariables.error }}>
+                    {ollamaStatus.type === 'success' ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                    {ollamaStatus.text}
+                  </div>
+                )}
+                <p className="mt-2 text-xs" style={{ color: cssVariables.textMuted }}>
+                  数据不出本机，无需 API Key。若列表为空，请确认已运行 <code>ollama serve</code> 并通过 <code>ollama pull</code> 下载模型。
+                </p>
+              </div>
+            )}
 
             {/* API Key Configuration */}
             {aiModel === 'deepseek' && (

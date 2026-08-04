@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# 后端数据库连接配置（含密码）
+server/.env
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,3 +25,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# 验证截图
+*.png

@@ -12,7 +12,7 @@ import {
   FileText,
   MoreHorizontal
 } from 'lucide-react';
-import { upsertRole, deleteRole } from '../services/supabaseService';
+import { upsertRole, deleteRole } from '../services/apiService';
 
 interface RoleManagerProps {
   roles: Role[];

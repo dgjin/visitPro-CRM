@@ -32,17 +32,72 @@ export interface Subsidiary {
   status?: string;
 }
 
+// 客户类型（对应《客户营销清单》三个分类）
+export type ClientType = '地方政府' | '金融机构' | '产业客户';
+
+// 协议签署信息（客户层）
+export interface AgreementInfo {
+  signed?: boolean;      // 是否签署相关协议
+  party?: string;        // 协议签署主体（中国东方/XX分公司/XX子公司）
+  signDate?: string;     // 协议签署时间
+  expireDate?: string;   // 协议到期时间
+}
+
+// 落地项目信息（客户层）
+export interface ProjectInfo {
+  landed?: boolean;      // 是否有落地项目
+  projectNo?: string;    // 项目编号
+  projectName?: string;  // 项目名称
+  scale?: number;        // 落地规模（万元）
+}
+
+// 按客户类型区分的专属信息项
+export interface TypeProfile {
+  // --- 公共基础（政府类型无信用代码/股东等字段）---
+  creditCode?: string;            // 统一社会信用代码
+  stockCode?: string;             // 上市代码
+  foundedDate?: string;           // 成立时间
+  majorShareholder?: string;      // 第一大股东
+  majorShareholderRatio?: string; // 第一大股东持股比例
+  reportingUnit?: string;         // 上报经营单位
+
+  // --- 地方政府 ---
+  adminLevel?: string;            // 行政级别
+
+  // --- 金融机构 ---
+  finCategory?: string;           // 客户类别（银行/证券/保险/信托/金融租赁）
+  finSubCategory?: string;        // 细分类别
+  finRank?: string;               // 行业排名
+
+  // --- 产业客户 ---
+  groupOwner?: string;            // 客户所属集团/单位/个人（股权穿透至最上层）
+  entCategory?: string;           // 客户类别（省属国企/市属国企/民营...）
+  industryCategory?: string;      // 所属行业门类（国民经济行业分类第一层）
+  industrySub?: string;           // 所属行业小类（第四层）
+  industryCode?: string;          // 行业代码
+  creditRating?: string;          // 主体评级
+  top500Rank?: string;            // 世界/中企/民企500强排名
+
+  // --- 协议与项目（客户层，所有类型共用）---
+  agreement?: AgreementInfo;
+  project?: ProjectInfo;
+}
+
 export interface Client {
   id: string;
   name: string;
   industry: string;
   status: ClientStatus;
+  clientType?: ClientType;
   region: string;
   contacts: Contact[];
   
   // Owner info
   ownerId?: string;
   ownerName?: string;
+
+  // 按客户类型区分的专属信息项
+  typeProfile?: TypeProfile;
 
   // Dynamic fields
   customFields?: Record<string, any>;
@@ -148,7 +203,7 @@ export interface Notification {
 
 export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES';
 
-export type AIModelType = 'gemini' | 'deepseek' | 'spark' | 'kimi';
+export type AIModelType = 'ollama' | 'gemini' | 'deepseek' | 'spark' | 'kimi';
 
 export interface AppSettings {
   aiModel: AIModelType;

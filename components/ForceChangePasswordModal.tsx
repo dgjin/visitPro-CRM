@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { hashPassword, upsertUser } from '../services/supabaseService';
+import { hashPassword, upsertUser } from '../services/apiService';
 import { Lock, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
 interface ForceChangePasswordModalProps {

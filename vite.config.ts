@@ -8,13 +8,17 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    server: {
+      proxy: {
+        // 本地 MySQL 后端 API (server/index.js)
+        '/api': 'http://localhost:3006',
+      },
+    },
     define: {
       // Polyfill global process to prevent "process is not defined" errors in some libraries
       'process.env': {},
       // Manually map process.env keys to the loaded environment variables
       'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
-      'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL || ''),
-      'process.env.SUPABASE_KEY': JSON.stringify(env.SUPABASE_KEY || ''),
       'process.env.DEEPSEEK_API_KEY': JSON.stringify(env.DEEPSEEK_API_KEY || ''),
       'process.env.IFLYTEK_APP_ID': JSON.stringify(env.IFLYTEK_APP_ID || ''),
       'process.env.IFLYTEK_API_SECRET': JSON.stringify(env.IFLYTEK_API_SECRET || ''),

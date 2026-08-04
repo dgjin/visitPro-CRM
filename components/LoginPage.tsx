@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Handshake, Loader2, Lock, Mail, Settings, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { loginUser, getStoredConfig, saveConfig, checkConnection, isConfiguredFromEnv } from '../services/supabaseService';
+import { loginUser, getStoredConfig, saveConfig, checkConnection, isConfiguredFromEnv } from '../services/apiService';
 import { User } from '../types';
 
 interface LoginPageProps {
@@ -36,7 +36,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOfflineM
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-        setErrorMsg("请输入邮箱和密码");
+        setErrorMsg("请输入账号（邮箱或手机号）和密码");
         return;
     }
 
@@ -395,7 +395,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOfflineM
                     fontWeight: 500, 
                     color: 'var(--text-secondary)',
                     marginBottom: '0.5rem'
-                  }}>邮箱地址</label>
+                  }}>账号</label>
                   <div style={{ position: 'relative' }}>
                      <div style={{
                        position: 'absolute',
@@ -408,10 +408,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOfflineM
                         <Mail className="w-5 h-5" />
                      </div>
                      <input 
-                        type="email" 
+                        type="text" 
                         required
                         className="input"
-                        placeholder="name@company.com"
+                        placeholder="邮箱或手机号"
+                        autoComplete="username"
                         value={email}
                         onChange={e => setEmail(e.target.value)}
                         style={{ paddingLeft: '2.75rem' }}
@@ -539,8 +540,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOfflineM
                   color: 'var(--text-tertiary)',
                   padding: '0 0.5rem'
                 }}>
+                    <p>支持邮箱或手机号登录</p>
                     <p>默认管理员: <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>admin@visitpro.com</span></p>
-                    <p>初始密码: <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>123456</span></p>
                 </div>
             </div>
          </div>

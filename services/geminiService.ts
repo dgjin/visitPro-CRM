@@ -5,6 +5,10 @@ import { Visit, Sentiment, AIModelType } from "../types";
 const AI_MODEL_KEY = 'visitpro_ai_model';
 const DEEPSEEK_KEY_KEY = 'visitpro_deepseek_key';
 const KIMI_KEY_KEY = 'visitpro_kimi_key';
+const OLLAMA_MODEL_KEY = 'visitpro_ollama_model';
+
+// 本地 Ollama 默认模型（可在系统设置中切换为已安装的任意模型）
+export const DEFAULT_OLLAMA_MODEL = 'qwen3.6:latest';
 
 export const getAIConfig = () => {
   // STRICT ENV PRIORITY
@@ -14,7 +18,10 @@ export const getAIConfig = () => {
   const envKimiKey = process.env.KIMI_API_KEY;
 
   return {
-    model: localStorage.getItem(AI_MODEL_KEY) || 'gemini',
+    // 默认使用本地 Ollama 模型
+    model: localStorage.getItem(AI_MODEL_KEY) || 'ollama',
+    // Ollama: 具体模型名称
+    ollamaModel: localStorage.getItem(OLLAMA_MODEL_KEY) || DEFAULT_OLLAMA_MODEL,
     // API key exclusively from process.env for Gemini
     geminiKey: process.env.API_KEY, 
     // Deepseek: Env > LocalStorage
@@ -22,6 +29,48 @@ export const getAIConfig = () => {
     // Kimi: Env > LocalStorage
     kimiKey: envKimiKey || localStorage.getItem(KIMI_KEY_KEY) || ''
   };
+};
+
+/**
+ * 获取本地 Ollama 已安装模型列表（经后端代理）
+ */
+export const fetchOllamaModels = async (): Promise<string[]> => {
+  const res = await fetch('/api/ollama/models');
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '无法连接 Ollama 服务');
+  }
+  return data.models || [];
+};
+
+/**
+ * 调用本地 Ollama 模型（OpenAI 兼容接口，经后端 /api/ollama/chat 代理）
+ */
+export const callOllama = async (messages: any[], jsonMode: boolean = false) => {
+  const config = getAIConfig();
+  try {
+    const response = await fetch('/api/ollama/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: config.ollamaModel,
+        messages: messages,
+        jsonMode: jsonMode
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || `Ollama API Error: ${response.status}`);
+    }
+    return data.content || '';
+  } catch (error: any) {
+    console.error("Ollama Request Failed:", error);
+    if (error.message?.includes('Failed to fetch')) {
+      throw new Error('后端服务未启动，无法代理 Ollama 请求，请先运行 npm run server');
+    }
+    throw error;
+  }
 };
 
 export const callDeepSeek = async (messages: any[], jsonMode: boolean = false) => {
@@ -159,7 +208,12 @@ export const generateClientProfile = async (clientName: string, industry: string
   try {
     let resultText = "{}";
 
-    if (activeModel === 'deepseek') {
+    if (activeModel === 'ollama') {
+        resultText = await callOllama([
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+        ], true);
+    } else if (activeModel === 'deepseek') {
         resultText = await callDeepSeek([
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt }
@@ -270,7 +324,12 @@ export const analyzeVisitNote = async (note: string, clientName: string, modelOv
     try {
         let resultText = "{}";
 
-        if (activeModel === 'deepseek') {
+        if (activeModel === 'ollama') {
+             resultText = await callOllama([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+             ], true);
+        } else if (activeModel === 'deepseek') {
              resultText = await callDeepSeek([
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt }
@@ -350,7 +409,12 @@ export const generateFollowUpEmail = async (visit: Visit, tone: string, modelOve
     `;
     
     try {
-        if (activeModel === 'deepseek') {
+        if (activeModel === 'ollama') {
+            return await callOllama([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+            ]);
+        } else if (activeModel === 'deepseek') {
             return await callDeepSeek([
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt }
@@ -447,7 +511,12 @@ export const organizeVoiceTranscript = async (transcript: string, clientName: st
     try {
         let resultText = "{}";
 
-        if (activeModel === 'deepseek') {
+        if (activeModel === 'ollama') {
+             resultText = await callOllama([
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+             ], true);
+        } else if (activeModel === 'deepseek') {
              resultText = await callDeepSeek([
                 { role: "system", content: systemPrompt },
                 { role: "user", content: userPrompt }
