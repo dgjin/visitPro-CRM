@@ -28,3 +28,6 @@ server/.env
 
 # 验证截图
 *.png
+
+# 环境变量配置（含 API 密钥）
+.env
