@@ -8,11 +8,28 @@ import { Client, Visit, User, Department, Role, LoginHistory } from '../types';
 
 const API_BASE = '/api';
 
+// ==========================================
+// 会话 token 管理（JWT，登录后由服务端签发）
+// ==========================================
+const TOKEN_KEY = 'visitpro_token';
+
+export const getStoredToken = () => localStorage.getItem(TOKEN_KEY);
+export const storeToken = (token: string) => localStorage.setItem(TOKEN_KEY, token);
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
+
 const apiFetch = async (path: string, options?: RequestInit) => {
+  const token = getStoredToken();
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     ...options,
   });
+  if (res.status === 401 && path !== '/auth/login') {
+    // 会话失效：清除本地 token，由应用层回到登录页
+    clearToken();
+  }
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
     try {
@@ -53,6 +70,8 @@ export const loginUser = async (email: string, passwordPlain: string): Promise<{
       return { success: false, message: result.message || '登录失败' };
     }
 
+    if (result.token) storeToken(result.token);
+
     // Map snake_case DB columns to camelCase JS properties
     const user: User = {
       ...result.user,
@@ -65,17 +84,62 @@ export const loginUser = async (email: string, passwordPlain: string): Promise<{
   }
 };
 
+/**
+ * 会话恢复：凭本地 token 获取当前用户（刷新页面后免重新登录）
+ */
+export const fetchMe = async (): Promise<User | null> => {
+  if (!getStoredToken()) return null;
+  try {
+    const result = await apiFetch('/auth/me');
+    if (!result.success || !result.user) return null;
+    return { ...result.user, themePreference: result.user.theme_preference } as User;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 本人修改密码（服务端校验当前密码并加盐存储）
+ */
+export const changePassword = async (currentPlain: string, newPlain: string): Promise<{ success: boolean; message?: string }> => {
+  try {
+    const result = await apiFetch('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        currentPasswordHash: await hashPassword(currentPlain),
+        newPasswordHash: await hashPassword(newPlain),
+      }),
+    });
+    return { success: !!result.success, message: result.message };
+  } catch (e: any) {
+    return { success: false, message: e.message || '网络错误' };
+  }
+};
+
+/**
+ * 管理员重置他人密码（重置后对方首次登录强制改密）
+ */
+export const resetPassword = async (userId: string, newPlain: string): Promise<{ success: boolean; message?: string }> => {
+  try {
+    const result = await apiFetch('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ userId, newPasswordHash: await hashPassword(newPlain) }),
+    });
+    return { success: !!result.success, message: result.message };
+  } catch (e: any) {
+    return { success: false, message: e.message || '网络错误' };
+  }
+};
+
 export const isConfiguredFromEnv = () => {
   // 本地 MySQL 后端始终视为已配置（连接配置在 server/.env）
   return true;
 };
 
-export const initSupabase = () => {
-  // 兼容旧调用：返回一个真值标记对象，表示使用本地 API
+export const initApi = () => {
+  // 返回一个真值标记对象，表示使用本地 API
   return { apiUrl: API_BASE };
 };
-
-export const getSupabase = () => initSupabase();
 
 export const checkConnection = async (): Promise<{ success: boolean; message?: string }> => {
   try {
@@ -84,13 +148,6 @@ export const checkConnection = async (): Promise<{ success: boolean; message?: s
   } catch (e: any) {
     return { success: false, message: e.message?.includes('Failed to fetch') ? '后端服务未启动 (localhost:3006)' : e.message };
   }
-};
-
-// Configuration Helpers (保留接口兼容，本地后端无需前端配置)
-export const getStoredConfig = () => ({ url: API_BASE, key: '' });
-
-export const saveConfig = (_url: string, _key: string) => {
-  console.warn('本地 MySQL 模式下无需配置数据库连接，连接信息位于 server/.env');
 };
 
 /**
@@ -208,8 +265,8 @@ export const fetchUsers = async (): Promise<User[] | null> => {
 };
 
 export const upsertUser = async (userData: User) => {
-  // remove UI-only fields like 'role'
-  const { role, themePreference, ...rest } = userData;
+  // remove UI-only fields like 'role'; password 不通过此接口修改（走改密/重置专用接口）
+  const { role, themePreference, mustChangePassword, ...rest } = userData;
 
   const optimizedUser = {
     ...rest,
@@ -225,11 +282,8 @@ export const upsertUser = async (userData: User) => {
 };
 
 export const deleteUser = async (id: string) => {
-  try {
-    await apiFetch(`/users/${id}`, { method: 'DELETE' });
-  } catch (e) {
-    console.error('Error deleting user:', e);
-  }
+  // 服务端会做引用保护校验（名下有客户/拜访时拒绝删除），错误需向上抛出
+  await apiFetch(`/users/${id}`, { method: 'DELETE' });
 };
 
 // --- Login History ---
@@ -247,3 +301,85 @@ export const reloadSchemaCache = async () => {
   // 本地 MySQL 模式无 schema cache 概念，保留接口兼容
   console.info('本地 MySQL 模式下无需刷新 schema 缓存');
 };
+
+// ==========================================
+// 智能问数（AI Query）：SSE 流式接口
+// 后端流程参照 free-report：LLM 只理解问题/总结数据，取数走白名单 + 数据权限
+// ==========================================
+export interface AiChart {
+  type: 'bar' | 'line' | 'pie' | 'table';
+  title: string;
+  categories: string[];
+  series: { name: string; data: number[] }[];
+}
+
+export interface AiTable {
+  columns: string[];
+  rows: (string | number)[][];
+}
+
+export interface AiPlan {
+  dataset: string;
+  dataset_label: string;
+  dimension: string;
+  recent_months: number | null;
+  owner_names: string[];
+  chart_type: string;
+  title: string;
+}
+
+export const getAiConfig = async (): Promise<{ enabled: boolean }> => {
+  try {
+    return await apiFetch('/ai/config');
+  } catch {
+    return { enabled: false };
+  }
+};
+
+/**
+ * SSE 流式问数：逐事件回调 onEvent(type, data)。
+ * 事件类型：status | text_only | plan | chart | table | answer_delta | scope_note | done | error
+ */
+export const aiQueryStream = async (
+  question: string,
+  history: { role: 'user' | 'assistant'; content: string }[],
+  onEvent: (type: string, data: string) => void
+): Promise<void> => {
+  const token = getStoredToken();
+  const res = await fetch(`${API_BASE}/ai/query/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ question, history }),
+  });
+  if (res.status === 401) { clearToken(); throw new Error('登录已过期，请重新登录'); }
+  if (!res.ok || !res.body) {
+    let message = `HTTP ${res.status}`;
+    try { message = (await res.json()).error || message; } catch { /* ignore */ }
+    throw new Error(message);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE 事件以空行分隔
+    let sepIndex;
+    while ((sepIndex = buffer.indexOf('\n\n')) >= 0) {
+      const block = buffer.slice(0, sepIndex);
+      buffer = buffer.slice(sepIndex + 2);
+      let type = 'message';
+      const dataLines: string[] = [];
+      for (const line of block.split('\n')) {
+        if (line.startsWith('event:')) type = line.slice(6).trim();
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+      }
+      if (dataLines.length > 0) onEvent(type, dataLines.join('\n'));
+    }
+  }
+};
+

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { User, Role, Department, LoginHistory } from '../types';
 import { Plus, Edit2, Trash2, UserCog, X, Search, ChevronLeft, ChevronRight, Clock, History, Camera, Lock, Upload, User as UserIcon } from 'lucide-react';
-import { upsertUser, deleteUser, fetchLoginHistory, hashPassword } from '../services/apiService';
+import { upsertUser, deleteUser, fetchLoginHistory, resetPassword } from '../services/apiService';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -103,12 +103,6 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
     const roleObj = roles.find(r => r.id === editingUser.roleId);
     
     const isNewUser = !editingUser.id;
-    let passwordHash = undefined;
-
-    // Set default password '123456' for new users
-    if (isNewUser) {
-        passwordHash = await hashPassword('123456');
-    }
 
     const userToSave: User = {
         id: editingUser.id || Date.now().toString(),
@@ -121,7 +115,6 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
         role: roleObj?.name || '用户', // Fallback for display
         status: editingUser.status || 'active',
         customFields: editingUser.customFields || {},
-        ...(isNewUser ? { password: passwordHash } : {}) // Only set password on creation
     };
 
     setUsers(prev => {
@@ -133,7 +126,9 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
     await upsertUser(userToSave);
     
     if (isNewUser) {
-        alert(`用户 ${userToSave.name} 已创建。默认密码为：123456`);
+        // 新用户设置默认密码（服务端加盐存储），首次登录强制修改
+        await resetPassword(userToSave.id, '123456');
+        alert(`用户 ${userToSave.name} 已创建。默认密码为：123456（首次登录须修改）`);
     }
     
     setEditingUser(null);
@@ -141,19 +136,20 @@ export const UserManager: React.FC<UserManagerProps> = ({ users, setUsers, roles
 
   const handleDelete = async (id: string) => {
     if (!confirm("确定要删除此用户吗？")) return;
-    setUsers(prev => prev.filter(u => u.id !== id));
-    await deleteUser(id);
+    try {
+        await deleteUser(id);
+        setUsers(prev => prev.filter(u => u.id !== id));
+    } catch (e: any) {
+        alert(e.message || '删除失败');
+    }
   };
 
   const handleResetPassword = async () => {
       if (!editingUser?.id) return;
       if (!confirm(`确定要重置 ${editingUser.name} 的密码为 "123456" 吗？`)) return;
       
-      const defaultHash = await hashPassword('123456');
-      const updatedUser = { ...editingUser, password: defaultHash } as User;
-      
-      await upsertUser(updatedUser);
-      alert("密码已重置为 123456");
+      const result = await resetPassword(editingUser.id, '123456');
+      alert(result.success ? "密码已重置为 123456（该用户下次登录须修改）" : (result.message || '重置失败'));
   };
 
   const formatLastLogin = (iso?: string) => {

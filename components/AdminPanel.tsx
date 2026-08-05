@@ -5,7 +5,7 @@ import {
   Eye, EyeOff, Sparkles, Server, FileJson, ChevronRight, Save,
   Key, Cloud, Lock, Globe, Zap, Layers
 } from 'lucide-react';
-import { getStoredConfig, saveConfig, checkConnection, reloadSchemaCache } from '../services/apiService';
+import { checkConnection, reloadSchemaCache } from '../services/apiService';
 import { getIflytekConfig, saveIflytekConfig } from '../services/iflytekService';
 import { fetchOllamaModels, DEFAULT_OLLAMA_MODEL } from '../services/geminiService';
 import { CustomFieldDefinition, EntityType, FieldType, AIModelType } from '../types';
@@ -99,8 +99,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   setFieldDefinitions = (_: any) => {},
   onConfigSave
 }) => {
-  const [sbUrl, setSbUrl] = useState('');
-  const [sbKey, setSbKey] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [isReloadingCache, setIsReloadingCache] = useState(false);
   
@@ -135,24 +133,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [fieldType, setFieldType] = useState<FieldType>('text');
   const [fieldOptions, setFieldOptions] = useState('');
 
-  const isSupabaseEnvConfigured = !!process.env.SUPABASE_URL && process.env.SUPABASE_URL !== 'undefined';
   const isDeepSeekEnvConfigured = !!process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_API_KEY !== 'undefined';
   const isKimiEnvConfigured = !!process.env.KIMI_API_KEY && process.env.KIMI_API_KEY !== 'undefined';
   const isIflytekEnvConfigured = !!process.env.IFLYTEK_APP_ID && process.env.IFLYTEK_APP_ID !== 'undefined';
 
   useEffect(() => {
-    if (!isSupabaseEnvConfigured) {
-      const config = getStoredConfig();
-      setSbUrl(config.url || 'https://gdrruugeqttiyufqqaug.supabase.co');
-      setSbKey(config.key || 'sb_publishable_h_ehiKEEFGHT7iw0IDKFQQ_jDjuXY5u');
-    }
-    
     // Load iFlytek Config
     if (!isIflytekEnvConfigured) {
         const iflyConfig = getIflytekConfig();
-        setIflytekAppId(iflyConfig.appId || '8cc61805');
-        setIflytekApiSecret(iflyConfig.apiSecret || 'MjU5OTkzOWMyN2ZiNDhlMDNkNjdjMDli');
-        setIflytekApiKey(iflyConfig.apiKey || 'ffed16b33a183c42c3b989d5306f0d75');
+        setIflytekAppId(iflyConfig.appId || '');
+        setIflytekApiSecret(iflyConfig.apiSecret || '');
+        setIflytekApiKey(iflyConfig.apiKey || '');
         setIflytekDomain(iflyConfig.domain || 'generalv3.5');
         setIflytekSttDomain(iflyConfig.sttDomain || 'iat');
     }
@@ -168,7 +159,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     // Load Ollama Config
     setOllamaModel(localStorage.getItem(OLLAMA_MODEL_KEY) || DEFAULT_OLLAMA_MODEL);
     loadOllamaModels();
-  }, [isSupabaseEnvConfigured, isIflytekEnvConfigured, isDeepSeekEnvConfigured, isKimiEnvConfigured]);
+  }, [isIflytekEnvConfigured, isDeepSeekEnvConfigured, isKimiEnvConfigured]);
 
   // Reset form when switching tabs
   useEffect(() => {
@@ -182,7 +173,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setFieldOptions('');
   };
 
-  const handleSaveSupabase = async () => {
+  const handleTestConnection = async () => {
     // 本地 MySQL 模式：连接配置在 server/.env，这里仅做连通性检测
     const result = await checkConnection();
     if (result.success) {
@@ -1232,93 +1223,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     数据库配置
                   </h3>
                   <p className="text-xs" style={{ color: cssVariables.textMuted }}>
-                    Supabase 连接设置
+                    本地 MySQL 连接设置
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="p-6">
-              {isSupabaseEnvConfigured ? (
                 <div className="space-y-4">
-                  <div 
-                    className="p-4 flex items-start space-x-3"
-                    style={{ 
-                      background: cssVariables.successSubtle,
-                      border: `1px solid ${cssVariables.successLight}`,
-                      borderRadius: 'var(--radius-md)'
-                    }}
-                  >
-                    <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: cssVariables.success }} />
-                    <div className="flex-1">
-                      <p className="font-medium text-sm" style={{ color: cssVariables.success }}>
-                        已通过环境变量配置
-                      </p>
-                      <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                        系统已检测到 SUPABASE_URL 变量
-                      </p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={handleReloadSchemaCache}
-                    disabled={isReloadingCache}
-                    className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium transition-all duration-200"
-                    style={{ 
-                      border: '1px solid var(--border)',
-                      color: 'var(--text-secondary)',
-                      background: 'var(--bg-secondary)',
-                      borderRadius: 'var(--radius)'
-                    }}
-                  >
-                    <RefreshCw className={`w-4 h-4 mr-2 ${isReloadingCache ? 'animate-spin' : ''}`} />
-                    刷新数据库缓存
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-tertiary)' }}>
-                      Project URL
-                    </label>
-                    <div className="relative">
-                      <Cloud className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: cssVariables.textMuted }} />
-                      <input 
-                        type="text" 
-                        placeholder="https://xyz.supabase.co"
-                        value={sbUrl}
-                        onChange={(e) => setSbUrl(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 text-sm outline-none transition-all focus:ring-2"
-                        style={{ 
-                          border: '1px solid var(--border)',
-                          background: 'var(--bg-secondary)',
-                          color: 'var(--text-primary)',
-                          borderRadius: 'var(--radius)'
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-tertiary)' }}>
-                      Anon API Key
-                    </label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: cssVariables.textMuted }} />
-                      <input 
-                        type="password" 
-                        placeholder="eyJhbGciOiJIUzI1NiIsInR5..."
-                        value={sbKey}
-                        onChange={(e) => setSbKey(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 text-sm outline-none transition-all focus:ring-2"
-                        style={{ 
-                          border: '1px solid var(--border)',
-                          background: 'var(--bg-secondary)',
-                          color: 'var(--text-primary)',
-                          borderRadius: 'var(--radius)'
-                        }}
-                      />
-                    </div>
-                  </div>
-                  
+                  <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                    本地 MySQL 模式：数据库连接配置位于 server/.env，此处仅提供连通性检测。
+                  </p>
+
                   {/* Connection Status */}
                   {connectionStatus !== 'idle' && (
                     <div 
@@ -1345,7 +1261,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <div className="flex space-x-3 pt-2">
                     <button 
                       onClick={handleReloadSchemaCache}
-                      disabled={isReloadingCache || !sbUrl || !sbKey}
+                      disabled={isReloadingCache}
                       className="flex-1 flex items-center justify-center px-4 py-2.5 text-sm font-medium transition-all duration-200 disabled:opacity-50"
                       style={{ 
                         border: '1px solid var(--border)',
@@ -1355,10 +1271,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       }}
                     >
                       <RefreshCw className={`w-4 h-4 mr-2 ${isReloadingCache ? 'animate-spin' : ''}`} />
-                      刷新
+                      刷新数据库缓存
                     </button>
                     <button 
-                      onClick={handleSaveSupabase}
+                      onClick={handleTestConnection}
                       className="flex-1 flex items-center justify-center px-4 py-2.5 text-sm font-medium transition-all duration-200"
                       style={{ 
                         background: 'var(--primary-600)',
@@ -1367,11 +1283,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       }}
                     >
                       <Server className="w-4 h-4 mr-2" />
-                      保存并连接
+                      测试连接
                     </button>
                   </div>
                 </div>
-              )}
             </div>
           </section>
         </div>
@@ -1512,8 +1427,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               className="overflow-hidden"
               style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}
             >
-              <EnvStatusRow label="SUPABASE_URL" value={process.env.SUPABASE_URL} isSecret={false} />
-              <EnvStatusRow label="SUPABASE_KEY" value={process.env.SUPABASE_KEY} isSecret={true} />
               <EnvStatusRow label="API_KEY (Gemini)" value={process.env.API_KEY} isSecret={true} />
               <EnvStatusRow label="DEEPSEEK_API_KEY" value={process.env.DEEPSEEK_API_KEY} isSecret={true} />
               <EnvStatusRow label="IFLYTEK_APP_ID" value={process.env.IFLYTEK_APP_ID} isSecret={false} />

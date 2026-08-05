@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { ClientManager } from './components/ClientManager';
 import { VisitManager } from './components/VisitManager';
+import { AiQueryAssistant } from './components/AiQueryAssistant';
 import { AdminPanel } from './components/AdminPanel';
 import { UserManager } from './components/UserManager';
 import { DepartmentManager } from './components/DepartmentManager';
@@ -11,34 +12,7 @@ import { VoiceAssistant } from './components/VoiceAssistant';
 import { LoginPage } from './components/LoginPage'; // New
 import { ForceChangePasswordModal } from './components/ForceChangePasswordModal'; // New
 import { ViewState, Client, Visit, User, ClientStatus, Sentiment, CustomFieldDefinition, Department, Role } from './types';
-import { fetchClients, fetchVisits, initSupabase, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection, upsertUser, hashPassword } from './services/apiService';
-
-// Mock Data Definitions (Only used as fallback)
-const MOCK_ROLES: Role[] = [
-  { id: 'r1', name: '管理员', description: '系统完全访问权限' },
-  { id: 'r2', name: '销售经理', description: '管理团队和查看所有报表' },
-  { id: 'r3', name: '销售代表', description: '仅管理自己的客户和拜访' },
-];
-
-const MOCK_DEPARTMENTS: Department[] = [
-  { id: 'd1', name: '总部', parentId: null },
-  { id: 'd2', name: '销售部', parentId: 'd1' },
-];
-
-const MOCK_USER: User = {
-  id: 'u1',
-  name: '陈亚力 (Mock)',
-  email: 'admin@visitpro.com',
-  role: '管理员',
-  roleId: 'r1',
-  departmentId: 'd1',
-  avatarUrl: 'https://picsum.photos/200/200',
-  status: 'active',
-  // Mock hashed '123456'
-  password: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92' 
-};
-
-// ... (Other Mock Data if needed) ...
+import { fetchClients, fetchVisits, initApi, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection, upsertUser, fetchMe, clearToken } from './services/apiService';
 
 // Color Palettes
 const THEME_PALETTES: Record<string, Record<number, string>> = {
@@ -175,19 +149,16 @@ const App: React.FC = () => {
     setIsLoading(true);
     setConnectionMsg(null);
 
-    // 1. Force initialization (Will prefer Env if available)
-    const supabase = initSupabase();
+    // 1. Force initialization (本地 MySQL API)
+    const api = initApi();
     const isEnvMode = isConfiguredFromEnv();
     
-    if (supabase) {
+    if (api) {
       // 2. Explicit Connection Check
       if (isEnvMode) {
           const check = await checkConnection();
           if (!check.success) {
               setConnectionMsg("数据库连接失败 (ENV)");
-          } else {
-              // Auto-clear success message after 3s
-              // setConnectionMsg("已连接");
           }
       }
 
@@ -205,42 +176,32 @@ const App: React.FC = () => {
         setUsers(dbUsers || []);
         setDepartments(dbDepts || []);
         setRoles(dbRoles || []);
-        
-        // Note: We do NOT set currentUser here anymore. Login handles it.
-        // If users list is empty but we are logged in, we might need to refresh user data?
       } catch (err) {
-         console.error("Failed to fetch data from Supabase:", err);
+         console.error("Failed to fetch data from API:", err);
       }
-      
-    } else {
-      // Fallback Mock Data Loading
-      setClients([]);
-      setVisits([]);
-      setUsers([MOCK_USER]); // Ensure at least admin exists in mock
-      setDepartments(MOCK_DEPARTMENTS);
-      setRoles(MOCK_ROLES);
     }
     
     setIsLoading(false);
+  }, []);
+
+  // 会话恢复：刷新页面后凭本地 token 免重新登录
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const me = await fetchMe();
+      if (!cancelled && me) setCurrentUser(me);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // Initialize Data on Login Success
   useEffect(() => {
     if (currentUser) {
         refreshData();
-        checkDefaultPassword(currentUser);
+        // 服务端标记（默认密码用户首次登录须改密）
+        setIsForcePasswordChange(!!currentUser.mustChangePassword);
     }
   }, [currentUser, refreshData]);
-
-  // Check if password matches default '123456'
-  const checkDefaultPassword = async (user: User) => {
-      const defaultHash = await hashPassword('123456');
-      if (user.password === defaultHash) {
-          setIsForcePasswordChange(true);
-      } else {
-          setIsForcePasswordChange(false);
-      }
-  };
 
   // Role Based Access Control Logic
   useEffect(() => {
@@ -262,10 +223,6 @@ const App: React.FC = () => {
       setView('DASHBOARD');
     }
   }, [currentUser, currentView, roles]);
-
-  const handleSwitchUser = (user: User) => {
-      setCurrentUser(user);
-  };
 
   const handleUpdateUserProfile = async (updatedUser: User) => {
       await upsertUser(updatedUser);
@@ -318,6 +275,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+      clearToken();
       setCurrentUser(null);
       setIsForcePasswordChange(false);
       setConnectionMsg(null);
@@ -376,8 +334,6 @@ const App: React.FC = () => {
               currentView={currentView} 
               setView={setView} 
               user={currentUser}
-              allUsers={users}
-              onSwitchUser={handleSwitchUser}
               onUpdateUser={handleUpdateUserProfile}
               currentTheme={theme}
               setTheme={setTheme}
@@ -422,6 +378,9 @@ const App: React.FC = () => {
                   draftVisit={draftVisit} 
                   onClearDraft={() => setDraftVisit(null)}
                 />
+              )}
+              {currentView === 'AI_QUERY' && (
+                <AiQueryAssistant />
               )}
               {currentView === 'USERS' && (
                 <UserManager 

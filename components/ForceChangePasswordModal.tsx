@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { hashPassword, upsertUser } from '../services/apiService';
+import { changePassword } from '../services/apiService';
 import { Lock, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
 interface ForceChangePasswordModalProps {
@@ -9,6 +9,7 @@ interface ForceChangePasswordModalProps {
 }
 
 export const ForceChangePasswordModal: React.FC<ForceChangePasswordModalProps> = ({ user, onPasswordChanged }) => {
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -16,6 +17,10 @@ export const ForceChangePasswordModal: React.FC<ForceChangePasswordModalProps> =
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentPassword) {
+        setError("请输入当前密码");
+        return;
+    }
     if (!newPassword || newPassword.length < 6) {
         setError("新密码长度至少需要 6 位");
         return;
@@ -24,8 +29,8 @@ export const ForceChangePasswordModal: React.FC<ForceChangePasswordModalProps> =
         setError("两次输入的密码不一致");
         return;
     }
-    if (newPassword === '123456') {
-        setError("新密码不能与默认密码相同");
+    if (newPassword === currentPassword) {
+        setError("新密码不能与当前密码相同");
         return;
     }
 
@@ -33,11 +38,12 @@ export const ForceChangePasswordModal: React.FC<ForceChangePasswordModalProps> =
     setError(null);
 
     try {
-        const hashedPassword = await hashPassword(newPassword);
-        const updatedUser = { ...user, password: hashedPassword };
-        
-        await upsertUser(updatedUser);
-        onPasswordChanged(updatedUser);
+        const result = await changePassword(currentPassword, newPassword);
+        if (result.success) {
+            onPasswordChanged({ ...user, mustChangePassword: false });
+        } else {
+            setError(result.message || "保存失败，请重试");
+        }
     } catch (e) {
         console.error(e);
         setError("保存失败，请重试");
@@ -61,6 +67,17 @@ export const ForceChangePasswordModal: React.FC<ForceChangePasswordModalProps> =
           
           <div className="p-6">
              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                   <label className="block text-sm font-medium text-slate-700 mb-1">当前密码</label>
+                   <input 
+                      type="password"
+                      required
+                      className="w-full p-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      value={currentPassword}
+                      onChange={e => setCurrentPassword(e.target.value)}
+                      placeholder="请输入当前使用的密码"
+                   />
+                </div>
                 <div>
                    <label className="block text-sm font-medium text-slate-700 mb-1">新密码</label>
                    <input 

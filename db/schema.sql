@@ -47,10 +47,13 @@ CREATE TABLE IF NOT EXISTS users (
   roleId VARCHAR(64),
   departmentId VARCHAR(64),
   status VARCHAR(20) DEFAULT 'active',
+  must_change_password TINYINT(1) NOT NULL DEFAULT 0,
   customFields JSON,
   theme_preference VARCHAR(50),
   last_login_at DATETIME,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_users_email (email),
+  UNIQUE KEY uk_users_phone (phone),
   INDEX idx_users_dept (departmentId),
   CONSTRAINT fk_user_role FOREIGN KEY (roleId) REFERENCES roles(id) ON DELETE SET NULL,
   CONSTRAINT fk_user_dept FOREIGN KEY (departmentId) REFERENCES departments(id) ON DELETE SET NULL
@@ -144,3 +147,32 @@ INSERT INTO users (id, name, email, password, roleId, departmentId, status) VALU
    '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',
    'role_admin', 'dept_root', 'active')
 ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- ==========================================
+-- 10. 幂等迁移：users 强制改密标记 + 登录标识唯一索引
+-- ==========================================
+SET @has_must_change = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'visitpro' AND TABLE_NAME = 'users' AND COLUMN_NAME = 'must_change_password');
+SET @sql_must_change = IF(@has_must_change = 0, 'ALTER TABLE users ADD COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0', 'SELECT 1');
+PREPARE stmt FROM @sql_must_change; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_uk_email = (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = 'visitpro' AND TABLE_NAME = 'users' AND INDEX_NAME = 'uk_users_email');
+SET @sql_uk_email = IF(@has_uk_email = 0, 'ALTER TABLE users ADD UNIQUE INDEX uk_users_email (email)', 'SELECT 1');
+PREPARE stmt FROM @sql_uk_email; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_uk_phone = (SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = 'visitpro' AND TABLE_NAME = 'users' AND INDEX_NAME = 'uk_users_phone');
+SET @sql_uk_phone = IF(@has_uk_phone = 0, 'ALTER TABLE users ADD UNIQUE INDEX uk_users_phone (phone)', 'SELECT 1');
+PREPARE stmt FROM @sql_uk_phone; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 通讯录导入的默认密码用户首次登录须改密
+UPDATE users SET must_change_password = 1 WHERE id LIKE 'user_imp_%' AND must_change_password = 0;
+
+-- 智能问数审计日志
+CREATE TABLE IF NOT EXISTS ai_query_history (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id VARCHAR(100) NOT NULL,
+  question VARCHAR(500),
+  status VARCHAR(20),
+  detail VARCHAR(2000),
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_aiq_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

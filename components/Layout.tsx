@@ -38,8 +38,6 @@ interface LayoutProps {
   setView: (view: ViewState) => void;
   children: React.ReactNode;
   user: User;
-  allUsers?: User[];
-  onSwitchUser?: (user: User) => void;
   onUpdateUser?: (user: User) => void;
   currentTheme: string;
   setTheme: (theme: string) => void;
@@ -103,8 +101,6 @@ export const Layout: React.FC<LayoutProps> = ({
   setView, 
   children, 
   user, 
-  allUsers = [], 
-  onSwitchUser,
   onUpdateUser,
   currentTheme,
   setTheme,
@@ -283,6 +279,7 @@ export const Layout: React.FC<LayoutProps> = ({
       { label: 'Go to Dashboard (仪表盘)', view: 'DASHBOARD', icon: LayoutDashboard },
       { label: 'Go to Clients (客户管理)', view: 'CLIENTS', icon: Users },
       { label: 'Go to Visits (拜访记录)', view: 'VISITS', icon: Briefcase },
+      { label: 'Go to AI Query (智能问数)', view: 'AI_QUERY', icon: Sparkles },
       { label: 'Go to Users (用户管理)', view: 'USERS', icon: UserCog, adminOnly: true },
       { label: 'Go to Departments (部门管理)', view: 'DEPARTMENTS', icon: Network, adminOnly: true },
       { label: 'Go to Roles (角色管理)', view: 'ROLES', icon: ShieldCheck, adminOnly: true },
@@ -354,6 +351,7 @@ export const Layout: React.FC<LayoutProps> = ({
       DASHBOARD: '仪表盘',
       CLIENTS: '客户管理',
       VISITS: '拜访记录',
+      AI_QUERY: '智能问数',
       USERS: '用户管理',
       DEPARTMENTS: '部门管理',
       ROLES: '角色管理',
@@ -510,6 +508,7 @@ export const Layout: React.FC<LayoutProps> = ({
             <NavItem view="DASHBOARD" icon={LayoutDashboard} label="仪表盘" />
             <NavItem view="CLIENTS" icon={Users} label="客户管理" />
             <NavItem view="VISITS" icon={Briefcase} label="拜访记录" />
+            <NavItem view="AI_QUERY" icon={Sparkles} label="智能问数" />
           </div>
 
           {isAdmin && (
@@ -628,6 +627,7 @@ export const Layout: React.FC<LayoutProps> = ({
               <NavItem view="DASHBOARD" icon={LayoutDashboard} label="仪表盘" />
               <NavItem view="CLIENTS" icon={Users} label="客户管理" />
               <NavItem view="VISITS" icon={Briefcase} label="拜访记录" />
+              <NavItem view="AI_QUERY" icon={Sparkles} label="智能问数" />
             </div>
             
             {isAdmin && (

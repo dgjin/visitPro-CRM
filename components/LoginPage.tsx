@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Handshake, Loader2, Lock, Mail, Settings, CheckCircle, AlertCircle, Eye, EyeOff } from 'lucide-react';
-import { loginUser, getStoredConfig, saveConfig, checkConnection, isConfiguredFromEnv } from '../services/apiService';
+import React, { useState } from 'react';
+import { Handshake, Loader2, Lock, Mail, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { loginUser } from '../services/apiService';
 import { User } from '../types';
 
 interface LoginPageProps {
@@ -14,24 +14,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOfflineM
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-
-  // Config State
-  const [showConfig, setShowConfig] = useState(false);
-  const [sbUrl, setSbUrl] = useState('');
-  const [sbKey, setSbKey] = useState('');
-  const [isCheckingConfig, setIsCheckingConfig] = useState(false);
-  const [configMsg, setConfigMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  
-  const isEnvConfig = isConfiguredFromEnv();
-
-  useEffect(() => {
-      // Load existing config
-      if (!isEnvConfig) {
-          const config = getStoredConfig();
-          setSbUrl(config.url || '');
-          setSbKey(config.key || '');
-      }
-  }, [isEnvConfig]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,31 +46,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOfflineM
     } finally {
         setIsLoading(false);
     }
-  };
-
-  const handleSaveConfig = async () => {
-      if (!sbUrl || !sbKey) {
-          setConfigMsg({ type: 'error', text: "URL 和 Key 不能为空" });
-          return;
-      }
-
-      setIsCheckingConfig(true);
-      setConfigMsg(null);
-
-      try {
-          saveConfig(sbUrl, sbKey);
-          const result = await checkConnection();
-          if (result.success) {
-              setConfigMsg({ type: 'success', text: "连接成功！请尝试登录。" });
-              setTimeout(() => setShowConfig(false), 1500);
-          } else {
-              setConfigMsg({ type: 'error', text: `连接失败: ${result.message}` });
-          }
-      } catch (e: any) {
-          setConfigMsg({ type: 'error', text: `配置错误: ${e.message}` });
-      } finally {
-          setIsCheckingConfig(false);
-      }
   };
 
   return (
@@ -205,27 +162,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOfflineM
       {/* Right Side - Login Form */}
       <div className="flex-1 flex flex-col justify-center items-center p-6 lg:p-24 relative overflow-y-auto"
            style={{ background: 'var(--bg-secondary)' }}>
-         
-         {/* Config Toggle Button */}
-         <button 
-            onClick={() => setShowConfig(!showConfig)}
-            style={{
-              position: 'absolute',
-              top: '1.5rem',
-              right: '1.5rem',
-              padding: '0.5rem',
-              borderRadius: 'var(--radius)',
-              transition: 'all var(--transition)',
-              background: showConfig ? 'var(--primary-100)' : 'transparent',
-              color: showConfig ? 'var(--primary-600)' : 'var(--text-tertiary)',
-              transform: showConfig ? 'rotate(180deg)' : 'none',
-              border: 'none',
-              cursor: 'pointer'
-            }}
-            title="数据库配置"
-         >
-            <Settings className="w-5 h-5" />
-         </button>
 
          <div style={{ 
            width: '100%', 
@@ -260,130 +196,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, isOfflineM
                  letterSpacing: '-0.02em'
                }}>欢迎回来</h2>
                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>请输入您的账户信息以登录系统</p>
-            </div>
-
-            {/* Database Config Panel (Expandable) */}
-            <div style={{
-              maxHeight: showConfig ? '500px' : '0',
-              opacity: showConfig ? 1 : 0,
-              overflow: 'hidden',
-              transition: 'all var(--transition-slow) ease-in-out',
-              marginBottom: showConfig ? '1.5rem' : '0'
-            }}>
-                <div style={{
-                  background: 'var(--bg-primary)',
-                  padding: '1.5rem',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border)',
-                  boxShadow: 'var(--shadow)'
-                }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between',
-                      marginBottom: '1rem'
-                    }}>
-                        <h3 style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>数据库连接设置</h3>
-                        {isEnvConfig && (
-                          <span style={{
-                            fontSize: '0.625rem',
-                            fontWeight: 500,
-                            padding: '0.25rem 0.5rem',
-                            background: 'var(--success-light)',
-                            color: '#065f46',
-                            borderRadius: '9999px'
-                          }}>ENV 模式</span>
-                        )}
-                    </div>
-                    
-                    {isEnvConfig ? (
-                        <div style={{
-                          textAlign: 'center',
-                          padding: '1.5rem',
-                          background: 'var(--success-light)',
-                          borderRadius: 'var(--radius)',
-                          border: '1px solid #a7f3d0'
-                        }}>
-                            <CheckCircle style={{ width: '2rem', height: '2rem', color: 'var(--success)', marginBottom: '0.5rem' }} />
-                            <p style={{ fontSize: '0.875rem', color: '#065f46' }}>已通过环境变量配置 Supabase</p>
-                            <p style={{ fontSize: '0.75rem', color: '#059669', marginTop: '0.25rem' }}>如需修改，请更新 .env 文件</p>
-                        </div>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <div>
-                                <label style={{ 
-                                  display: 'block', 
-                                  fontSize: '0.75rem', 
-                                  fontWeight: 500, 
-                                  color: 'var(--text-secondary)',
-                                  marginBottom: '0.375rem'
-                                }}>Supabase URL</label>
-                                <input 
-                                    type="text"
-                                    className="input"
-                                    placeholder="https://xyz.supabase.co"
-                                    value={sbUrl}
-                                    onChange={e => setSbUrl(e.target.value)}
-                                    style={{ fontSize: '0.75rem' }}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ 
-                                  display: 'block', 
-                                  fontSize: '0.75rem', 
-                                  fontWeight: 500, 
-                                  color: 'var(--text-secondary)',
-                                  marginBottom: '0.375rem'
-                                }}>Anon Key</label>
-                                <input 
-                                    type="password"
-                                    className="input"
-                                    placeholder="eyJh..."
-                                    value={sbKey}
-                                    onChange={e => setSbKey(e.target.value)}
-                                    style={{ fontSize: '0.75rem' }}
-                                />
-                            </div>
-                            
-                            {configMsg && (
-                                <div style={{
-                                  fontSize: '0.75rem',
-                                  padding: '0.75rem',
-                                  borderRadius: 'var(--radius)',
-                                  display: 'flex',
-                                  alignItems: 'flex-start',
-                                  gap: '0.5rem',
-                                  background: configMsg.type === 'success' ? 'var(--success-light)' : 'var(--danger-light)',
-                                  color: configMsg.type === 'success' ? '#065f46' : 'var(--danger)',
-                                  border: `1px solid ${configMsg.type === 'success' ? '#a7f3d0' : '#fecaca'}`
-                                }}>
-                                    {configMsg.type === 'success' ? 
-                                      <CheckCircle style={{ width: '1rem', height: '1rem', flexShrink: 0 }} /> : 
-                                      <AlertCircle style={{ width: '1rem', height: '1rem', flexShrink: 0 }} />
-                                    }
-                                    {configMsg.text}
-                                </div>
-                            )}
-
-                            <button 
-                                onClick={handleSaveConfig}
-                                disabled={isCheckingConfig}
-                                className="btn"
-                                style={{
-                                  width: '100%',
-                                  background: 'var(--text-primary)',
-                                  color: 'white',
-                                  fontSize: '0.75rem',
-                                  opacity: isCheckingConfig ? 0.7 : 1,
-                                  cursor: isCheckingConfig ? 'not-allowed' : 'pointer'
-                                }}
-                            >
-                                {isCheckingConfig && <Loader2 className="w-3 h-3 animate-spin" />}
-                                {isCheckingConfig ? '连接测试中...' : '保存配置并连接'}
-                            </button>
-                        </div>
-                    )}
-                </div>
             </div>
 
             {/* Login Form */}

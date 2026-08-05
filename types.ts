@@ -3,6 +3,7 @@ export enum ClientStatus {
   Active = '已签约',
   Lead = '潜在客户',
   Churned = '已流失',
+  Onboarding = '实施中',
 }
 
 export enum Sentiment {
@@ -181,7 +182,7 @@ export interface User {
   customFields?: Record<string, any>;
   last_login_at?: string; // Add last login time
   themePreference?: string; // Stored theme preference
-  password?: string; // Simple password field for demo
+  mustChangePassword?: boolean; // 服务端标记：默认密码用户首次登录须改密
 }
 
 export interface LoginHistory {
@@ -201,7 +202,7 @@ export interface Notification {
   read: boolean;
 }
 
-export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES';
+export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'AI_QUERY' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES';
 
 export type AIModelType = 'ollama' | 'gemini' | 'deepseek' | 'spark' | 'kimi';
 
