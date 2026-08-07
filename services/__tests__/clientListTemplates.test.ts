@@ -13,10 +13,13 @@ const makeVisit = (over: Partial<Visit>): Visit =>
   ({ id: over.id || 'v1', clientId: 'c1', date: '2026-08-01', ...over } as Visit);
 
 describe('CLIENT_LIST_TEMPLATES', () => {
-  it('包含三个模板，分别对应三种客户类型', () => {
-    expect(CLIENT_LIST_TEMPLATES).toHaveLength(3);
-    const types = CLIENT_LIST_TEMPLATES.map(t => t.clientType).sort();
+  it('包含四个模板：三种客户类型 + 全量客户清单', () => {
+    expect(CLIENT_LIST_TEMPLATES).toHaveLength(4);
+    const types = CLIENT_LIST_TEMPLATES.filter(t => t.clientType).map(t => t.clientType).sort();
     expect(types).toEqual(['产业客户', '地方政府', '金融机构']);
+    const all = CLIENT_LIST_TEMPLATES.find(t => t.id === 'all');
+    expect(all).toBeDefined();
+    expect(all!.clientType).toBeUndefined();
   });
 
   it('每个模板均包含拜访信息列（最近拜访人/时间/次数）与重点客户列', () => {
@@ -29,13 +32,20 @@ describe('CLIENT_LIST_TEMPLATES', () => {
     }
   });
 
-  it('专属列插在公共列之间，不破坏公共列顺序', () => {
-    for (const t of CLIENT_LIST_TEMPLATES) {
+  it('类型模板专属列插在公共列之间，不破坏公共列顺序', () => {
+    for (const t of CLIENT_LIST_TEMPLATES.filter(t => t.clientType)) {
       const labels = t.columns.map(c => c.label);
       expect(labels.slice(0, 4)).toEqual(['客户名称', '所属行业', '所在地区', '负责人']);
       expect(labels).toContain('统一社会信用代码');
       expect(labels).toContain('落地项目');
     }
+  });
+
+  it('全量模板含客户类型/所属团队/清单分类列', () => {
+    const labels = CLIENT_LIST_TEMPLATES.find(t => t.id === 'all')!.columns.map(c => c.label);
+    expect(labels).toContain('客户类型');
+    expect(labels).toContain('所属团队');
+    expect(labels).toContain('清单分类');
   });
 });
 
@@ -62,6 +72,18 @@ describe('filterClientsByTemplate', () => {
     const gov = CLIENT_LIST_TEMPLATES.find(t => t.clientType === '地方政府')!;
     const result = filterClientsByTemplate(clients, gov);
     expect(result.map(c => c.name)).toEqual(['杭州市政府', '苏州市政府']);
+  });
+
+  it('全量模板不过滤类型与重点客户标记，全部保留并排序', () => {
+    const clients = [
+      makeClient({ id: '1', name: '招商银行', clientType: '金融机构', isKeyAccount: false }),
+      makeClient({ id: '2', name: '杭州市政府', clientType: '地方政府' }),
+      makeClient({ id: '3', name: '宝武集团', clientType: '产业客户', isKeyAccount: true }),
+      makeClient({ id: '4', name: '未分类客户', clientType: undefined }), // 无 clientType 也纳入
+    ];
+    const all = CLIENT_LIST_TEMPLATES.find(t => t.id === 'all')!;
+    const result = filterClientsByTemplate(clients, all);
+    expect(result).toHaveLength(4);
   });
 });
 

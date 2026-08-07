@@ -19,7 +19,8 @@ export interface VisitContext {
 
 export interface ClientListTemplate {
   id: string;
-  clientType: ClientType;
+  /** 未指定时不限客户类型（如全量客户清单） */
+  clientType?: ClientType;
   title: string;
   description: string;
   columns: ListColumn[];
@@ -112,12 +113,29 @@ export const CLIENT_LIST_TEMPLATES: ClientListTemplate[] = [
       ...COMMON_COLUMNS.slice(8),
     ],
   },
+  {
+    id: 'all',
+    title: '全量客户清单',
+    description: '汇总全部客户（不限类型、不限重点客户），含客户类型、所属团队与清单分类',
+    columns: [
+      { label: '客户名称', get: c => dash(c.name) },
+      { label: '客户类型', get: c => dash(c.clientType) },
+      { label: '所属行业', get: c => dash(c.industry) },
+      { label: '所在地区', get: c => dash(c.region) },
+      { label: '负责人', get: c => dash(c.ownerName) },
+      ...VISIT_COLUMNS,
+      { label: '重点客户', get: c => (c.isKeyAccount === false ? '否' : '是') },
+      { label: '所属团队', get: c => dash(c.team) },
+      { label: '清单分类', get: c => dash(c.listCategory) },
+      ...COMMON_COLUMNS.slice(8),
+    ],
+  },
 ];
 
-/** 按模板过滤并排序客户：仅含重点客户（未标记视为是），按名称稳定排序便于导出对照 */
+/** 按模板过滤并排序客户：类型模板仅含重点客户（未标记视为是）；全量模板不过滤。按名称稳定排序便于导出对照 */
 export function filterClientsByTemplate(clients: Client[], template: ClientListTemplate): Client[] {
   return clients
-    .filter(c => c.clientType === template.clientType && c.isKeyAccount !== false)
+    .filter(c => !template.clientType || (c.clientType === template.clientType && c.isKeyAccount !== false))
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN'));
 }
 
@@ -156,7 +174,7 @@ export function exportTemplateToExcel(
   }));
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, template.clientType);
+  XLSX.utils.book_append_sheet(wb, ws, template.clientType || '全部客户');
 
   const date = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `${template.title}_${date}.xlsx`);

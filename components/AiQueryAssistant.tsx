@@ -217,7 +217,7 @@ const TemplateBlock: React.FC<{ config: ClientListTemplate; clients: Client[]; v
   if (clients.length === 0) {
     return (
       <div className="text-xs text-[var(--gray-400)] p-3 rounded-lg bg-[var(--gray-50)] border border-[var(--gray-100)]">
-        当前数据范围内暂无「{config.clientType}」类别的客户。
+        当前数据范围内暂无{config.clientType ? `「${config.clientType}」类别的` : ''}客户。
       </div>
     );
   }
@@ -399,8 +399,12 @@ export const AiQueryAssistant: React.FC = () => {
       const visitCtx = visits ? buildVisitContextMap(visits) : undefined;
       updateLastAssistant(m => ({
         template: { config, clients: matched, visitCtx },
-        answer: `已按「${config.clientType}」类别生成客户详细信息清单，共 ${matched.length} 家客户（含最近拜访人与拜访时间）。可点击右上角"导出 Excel"下载完整清单。`,
-        scopeNote: '数据来源为当前登录用户可见的客户范围，仅统计重点客户（未标记视为是）；未设置客户类型的客户不计入本清单。',
+        answer: config.clientType
+          ? `已按「${config.clientType}」类别生成客户详细信息清单，共 ${matched.length} 家客户（含最近拜访人与拜访时间）。可点击右上角"导出 Excel"下载完整清单。`
+          : `已生成全量客户清单，共 ${matched.length} 家客户（不限类型与重点客户标记，含最近拜访人与拜访时间）。可点击右上角"导出 Excel"下载完整清单。`,
+        scopeNote: config.clientType
+          ? '数据来源为当前登录用户可见的客户范围，仅统计重点客户（未标记视为是）；未设置客户类型的客户不计入本清单。'
+          : '数据来源为当前登录用户可见的全部客户范围，包含重点与非重点客户。',
         status: undefined,
         done: true,
       }));
