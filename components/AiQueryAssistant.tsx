@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { Sparkles, Send, Loader2, AlertCircle, BarChart3, Table2, ChevronDown, FileSpreadsheet, Landmark, Building2, Factory } from 'lucide-react';
+import { Sparkles, Send, Loader2, AlertCircle, BarChart3, Table2, ChevronDown, FileSpreadsheet, Landmark, Building2, Factory, Maximize2, X } from 'lucide-react';
 import { aiQueryStream, getAiConfig, fetchClients, fetchVisits, AiChart, AiTable, AiPlan } from '../services/apiService';
 import { Client } from '../types';
 import {
@@ -175,8 +176,44 @@ const PlanChip: React.FC<{ plan: AiPlan }> = ({ plan }) => {
   );
 };
 
-/** 固定模板清单：按客户类别展示详细信息表格，并支持导出 Excel */
+/** 固定模板清单表格：普通模式限高滚动，全屏模式撑满视口 */
+const TemplateTable: React.FC<{ config: ClientListTemplate; clients: Client[]; visitCtx?: Map<string, VisitContext>; fill?: boolean }> = ({ config, clients, visitCtx, fill }) => (
+  <div className={`overflow-x-auto ${fill ? 'flex-1 min-h-0' : 'max-h-96'} overflow-y-auto bg-white`}>
+    <table className="w-full text-xs">
+      <thead className="sticky top-0">
+        <tr className="bg-[var(--gray-50)] text-[var(--gray-500)] text-[11px] font-semibold">
+          {config.columns.map((col, i) => (
+            <th key={i} className="p-2.5 text-left whitespace-nowrap">{col.label}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {clients.map((c, rIdx) => (
+          <tr key={c.id || rIdx} className="border-t border-[var(--gray-100)] hover:bg-[var(--gray-50)]">
+            {config.columns.map((col, cIdx) => (
+              <td key={cIdx} className={`p-2.5 whitespace-nowrap ${cIdx === 0 ? 'font-semibold' : 'text-[var(--gray-600)]'}`}>
+                {col.get(c, visitCtx?.get(c.id))}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+/** 固定模板清单：按客户类别展示详细信息表格，支持全屏查看与导出 Excel */
 const TemplateBlock: React.FC<{ config: ClientListTemplate; clients: Client[]; visitCtx?: Map<string, VisitContext> }> = ({ config, clients, visitCtx }) => {
+  const [fullscreen, setFullscreen] = useState(false);
+
+  // 全屏时支持 Esc 退出
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen]);
+
   if (clients.length === 0) {
     return (
       <div className="text-xs text-[var(--gray-400)] p-3 rounded-lg bg-[var(--gray-50)] border border-[var(--gray-100)]">
@@ -185,44 +222,66 @@ const TemplateBlock: React.FC<{ config: ClientListTemplate; clients: Client[]; v
     );
   }
   return (
-    <div className="rounded-lg border border-[var(--gray-200)] overflow-hidden">
-      <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--gray-50)] border-b border-[var(--gray-200)]">
-        <span className="text-xs font-semibold text-[var(--gray-600)] flex items-center gap-1.5">
-          <Table2 className="w-3.5 h-3.5 text-[var(--gray-400)]" />
-          {config.title}（{clients.length} 家）
-        </span>
-        <button
-          onClick={() => exportTemplateToExcel(clients, config, visitCtx)}
-          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-white transition-opacity hover:opacity-85"
-          style={{ backgroundColor: 'var(--primary)' }}
-        >
-          <FileSpreadsheet className="w-3.5 h-3.5" />
-          导出 Excel
-        </button>
+    <>
+      <div className="rounded-lg border border-[var(--gray-200)] overflow-hidden">
+        <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--gray-50)] border-b border-[var(--gray-200)]">
+          <span className="text-xs font-semibold text-[var(--gray-600)] flex items-center gap-1.5">
+            <Table2 className="w-3.5 h-3.5 text-[var(--gray-400)]" />
+            {config.title}（{clients.length} 家）
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setFullscreen(true)}
+              title="全屏查看"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border border-[var(--gray-200)] bg-white text-[var(--gray-600)] hover:bg-[var(--gray-50)] transition-colors"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              全屏
+            </button>
+            <button
+              onClick={() => exportTemplateToExcel(clients, config, visitCtx)}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-white transition-opacity hover:opacity-85"
+              style={{ backgroundColor: 'var(--primary)' }}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              导出 Excel
+            </button>
+          </div>
+        </div>
+        <TemplateTable config={config} clients={clients} visitCtx={visitCtx} />
       </div>
-      <div className="overflow-x-auto max-h-96 overflow-y-auto bg-white">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0">
-            <tr className="bg-[var(--gray-50)] text-[var(--gray-500)] text-[11px] font-semibold">
-              {config.columns.map((col, i) => (
-                <th key={i} className="p-2.5 text-left whitespace-nowrap">{col.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {clients.map((c, rIdx) => (
-              <tr key={c.id || rIdx} className="border-t border-[var(--gray-100)] hover:bg-[var(--gray-50)]">
-                {config.columns.map((col, cIdx) => (
-                  <td key={cIdx} className={`p-2.5 whitespace-nowrap ${cIdx === 0 ? 'font-semibold' : 'text-[var(--gray-600)]'}`}>
-                    {col.get(c, visitCtx?.get(c.id))}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+
+      {/* 全屏浮层：覆盖整个视口，Esc 或右上角关闭退出 */}
+      {fullscreen && createPortal(
+        <div className="fixed inset-0 z-50 bg-white flex flex-col">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--gray-200)] shrink-0">
+            <span className="text-sm font-semibold text-[var(--gray-800)] flex items-center gap-2">
+              <Table2 className="w-4 h-4" style={{ color: 'var(--primary)' }} />
+              {config.title}（{clients.length} 家）
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => exportTemplateToExcel(clients, config, visitCtx)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium text-white transition-opacity hover:opacity-85"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                导出 Excel
+              </button>
+              <button
+                onClick={() => setFullscreen(false)}
+                title="退出全屏（Esc）"
+                className="w-8 h-8 flex items-center justify-center rounded-md border border-[var(--gray-200)] text-[var(--gray-500)] hover:bg-[var(--gray-50)] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <TemplateTable config={config} clients={clients} visitCtx={visitCtx} fill />
+        </div>,
+        document.body
+      )}
+    </>
   );
 };
 
