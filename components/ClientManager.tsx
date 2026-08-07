@@ -164,6 +164,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       industry: NATIONAL_STANDARD_INDUSTRIES[2],
       status: ClientStatus.Lead,
       region: "",
+      isKeyAccount: true,
+      team: "",
+      listCategory: "",
       contacts: [],
       equityStructure: [],
       subsidiaries: [],
@@ -210,6 +213,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
         status: selectedClient.status || ClientStatus.Lead,
         clientType: selectedClient.clientType,
         region: selectedClient.region || '',
+        isKeyAccount: selectedClient.isKeyAccount === false ? false : true,
+        team: selectedClient.team || '',
+        listCategory: selectedClient.listCategory || '',
         contacts: selectedClient.contacts || [],
         customFields: selectedClient.customFields || {},
         typeProfile: selectedClient.typeProfile || {},
@@ -326,6 +332,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                       <th>客户类型</th>
                       <th>行业/地区</th>
                       <th>主要联系人</th>
+                      <th>所属团队</th>
                       <th>负责人</th>
                       <th className="text-right">操作</th>
                    </tr>
@@ -382,6 +389,13 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                )}
                             </td>
                             <td>
+                               {client.team ? (
+                                  <span className="text-xs text-[var(--text-secondary)]">{client.team}</span>
+                               ) : (
+                                  <span className="text-xs text-[var(--text-tertiary)] italic">未填写</span>
+                               )}
+                            </td>
+                            <td>
                                <div className="flex items-center text-xs text-[var(--text-secondary)]">
                                   <UserIcon className="w-3 h-3 mr-1.5 text-[var(--text-tertiary)]"/>
                                   {client.ownerName || 'Unknown'}
@@ -403,7 +417,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                    })}
                    {paginatedClients.length === 0 && (
                       <tr>
-                         <td colSpan={7} className="py-16 text-center">
+                         <td colSpan={8} className="py-16 text-center">
                             <div className="flex flex-col items-center justify-center text-[var(--text-tertiary)]">
                                <Users className="w-12 h-12 mb-3 opacity-20" />
                                <p className="text-sm">未找到相关客户</p>

@@ -19,12 +19,13 @@ describe('CLIENT_LIST_TEMPLATES', () => {
     expect(types).toEqual(['产业客户', '地方政府', '金融机构']);
   });
 
-  it('每个模板均包含拜访信息列（最近拜访人/时间/次数）', () => {
+  it('每个模板均包含拜访信息列（最近拜访人/时间/次数）与重点客户列', () => {
     for (const t of CLIENT_LIST_TEMPLATES) {
       const labels = t.columns.map(c => c.label);
       expect(labels).toContain('最近拜访人');
       expect(labels).toContain('最近拜访时间');
       expect(labels).toContain('累计拜访次数');
+      expect(labels).toContain('重点客户');
     }
   });
 
@@ -50,6 +51,17 @@ describe('filterClientsByTemplate', () => {
     const result = filterClientsByTemplate(clients, gov);
     // localeCompare zh-Hans-CN 按拼音序：安徽（an）在杭州（hang）之前
     expect(result.map(c => c.name)).toEqual(['安徽省政府', '杭州市政府']);
+  });
+
+  it('仅保留重点客户：isKeyAccount=false 被排除，未标记视为是', () => {
+    const clients = [
+      makeClient({ id: '1', name: '杭州市政府', clientType: '地方政府', isKeyAccount: true }),
+      makeClient({ id: '2', name: '安徽省政府', clientType: '地方政府', isKeyAccount: false }),
+      makeClient({ id: '3', name: '苏州市政府', clientType: '地方政府' }), // 未标记视为是
+    ];
+    const gov = CLIENT_LIST_TEMPLATES.find(t => t.clientType === '地方政府')!;
+    const result = filterClientsByTemplate(clients, gov);
+    expect(result.map(c => c.name)).toEqual(['杭州市政府', '苏州市政府']);
   });
 });
 
@@ -92,5 +104,11 @@ describe('拜访信息列取值', () => {
     expect(col('最近拜访人').get(client, undefined)).toBe('—');
     expect(col('最近拜访时间').get(client, undefined)).toBe('—');
     expect(col('累计拜访次数').get(client, undefined)).toBe('0');
+  });
+
+  it('重点客户列：false 显示否，true/未标记显示是', () => {
+    expect(col('重点客户').get(makeClient({ isKeyAccount: false }))).toBe('否');
+    expect(col('重点客户').get(makeClient({ isKeyAccount: true }))).toBe('是');
+    expect(col('重点客户').get(makeClient({}))).toBe('是');
   });
 });

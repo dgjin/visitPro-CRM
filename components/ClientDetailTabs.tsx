@@ -541,6 +541,45 @@ export const ClientDetailTabs: React.FC<{
                                         />
                                      </div>
                                      <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">重点客户</label>
+                                        <select
+                                           className="input"
+                                           value={selectedClient.isKeyAccount === false ? '否' : '是'}
+                                           onChange={e => setSelectedClient({...selectedClient, isKeyAccount: e.target.value === '是'})}
+                                           disabled={isReadOnly}
+                                        >
+                                           <option value="是">是</option>
+                                           <option value="否">否</option>
+                                        </select>
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所属团队</label>
+                                        <input
+                                           className="input"
+                                           value={selectedClient.team || ''}
+                                           onChange={e => setSelectedClient({...selectedClient, team: e.target.value})}
+                                           placeholder="例如：政企一部"
+                                           disabled={isReadOnly}
+                                        />
+                                     </div>
+                                     <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">清单分类</label>
+                                        <select
+                                           className="input"
+                                           value={selectedClient.listCategory || ''}
+                                           onChange={e => setSelectedClient({...selectedClient, listCategory: e.target.value})}
+                                           disabled={isReadOnly}
+                                        >
+                                           <option value="">未分类</option>
+                                           <option value="重点金融机构客户">重点金融机构客户</option>
+                                           <option value="央国企客户">央国企客户</option>
+                                           <option value="新兴产业及未来产业">新兴产业及未来产业</option>
+                                           <option value="其他实体类客户">其他实体类客户</option>
+                                           <option value="政府法院类客户">政府法院类客户</option>
+                                           <option value="协会、中介类客户">协会、中介类客户</option>
+                                        </select>
+                                     </div>
+                                     <div>
                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">负责人</label>
                                         <div className="flex items-center p-2.5 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)]">
                                             <UserIcon className="w-4 h-4 mr-2 text-[var(--text-tertiary)]" />

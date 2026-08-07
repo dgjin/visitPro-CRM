@@ -33,7 +33,7 @@ public final class TableMeta {
                             "customFields", "theme_preference", "last_login_at", "created_at"),
                     Set.of("customFields"), Set.of("last_login_at", "created_at")),
             "clients", new Meta(
-                    List.of("id", "name", "industry", "status", "clientType", "region", "contacts", "customFields",
+                    List.of("id", "name", "industry", "status", "clientType", "region", "isKeyAccount", "team", "listCategory", "contacts", "customFields",
                             "typeProfile", "ownerId", "ownerName", "equityStructure", "subsidiaries",
                             "financialAnalysis", "supplyChainInfo", "tags", "created_at"),
                     Set.of("contacts", "customFields", "typeProfile", "equityStructure", "subsidiaries", "tags"),

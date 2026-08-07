@@ -49,13 +49,14 @@ const VISIT_COLUMNS: ListColumn[] = [
   { label: '累计拜访次数', get: (_c, ctx) => String(ctx?.count ?? 0) },
 ];
 
-/** 公共列：所有客户类型共用 */
+/** 公共列：所有客户类型共用（前 8 列后插入类型专属列，勿调整 slice(0,8)/(8) 边界） */
 const COMMON_COLUMNS: ListColumn[] = [
   { label: '客户名称', get: c => dash(c.name) },
   { label: '所属行业', get: c => dash(c.industry) },
   { label: '所在地区', get: c => dash(c.region) },
   { label: '负责人', get: c => dash(c.ownerName) },
   ...VISIT_COLUMNS,
+  { label: '重点客户', get: c => (c.isKeyAccount === false ? '否' : '是') },
   { label: '统一社会信用代码', get: c => dash(c.typeProfile?.creditCode) },
   { label: '成立时间', get: c => dash(c.typeProfile?.foundedDate) },
   { label: '主要联系人', get: primaryContact },
@@ -113,10 +114,10 @@ export const CLIENT_LIST_TEMPLATES: ClientListTemplate[] = [
   },
 ];
 
-/** 按模板过滤并排序客户（按名称稳定排序，便于导出对照） */
+/** 按模板过滤并排序客户：仅含重点客户（未标记视为是），按名称稳定排序便于导出对照 */
 export function filterClientsByTemplate(clients: Client[], template: ClientListTemplate): Client[] {
   return clients
-    .filter(c => c.clientType === template.clientType)
+    .filter(c => c.clientType === template.clientType && c.isKeyAccount !== false)
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN'));
 }
 

@@ -91,6 +91,12 @@ export interface Client {
   status: ClientStatus;
   clientType?: ClientType;
   region: string;
+  /** 重点客户：true=是 false=否（默认是，清单模板仅导出重点客户） */
+  isKeyAccount?: boolean;
+  /** 所属团队 */
+  team?: string;
+  /** 清单分类（重点营销客户大表的客户分类） */
+  listCategory?: string;
   contacts: Contact[];
   
   // Owner info

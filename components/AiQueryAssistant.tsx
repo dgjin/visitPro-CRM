@@ -400,7 +400,7 @@ export const AiQueryAssistant: React.FC = () => {
       updateLastAssistant(m => ({
         template: { config, clients: matched, visitCtx },
         answer: `已按「${config.clientType}」类别生成客户详细信息清单，共 ${matched.length} 家客户（含最近拜访人与拜访时间）。可点击右上角"导出 Excel"下载完整清单。`,
-        scopeNote: '数据来源为当前登录用户可见的客户范围，未设置客户类型的客户不计入本清单。',
+        scopeNote: '数据来源为当前登录用户可见的客户范围，仅统计重点客户（未标记视为是）；未设置客户类型的客户不计入本清单。',
         status: undefined,
         done: true,
       }));
