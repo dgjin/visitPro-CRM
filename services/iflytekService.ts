@@ -7,19 +7,14 @@ export const IFLYTEK_DOMAIN_KEY = 'iflytek_domain'; // For Spark LLM
 export const IFLYTEK_STT_DOMAIN_KEY = 'iflytek_stt_domain'; // For Speech to Text
 
 export const getIflytekConfig = () => {
-    // FORCE ENV VARS if configured
-    const envAppId = process.env.IFLYTEK_APP_ID;
-    const envApiSecret = process.env.IFLYTEK_API_SECRET;
-    const envApiKey = process.env.IFLYTEK_API_KEY;
-    const envDomain = process.env.IFLYTEK_DOMAIN;
-    const envSttDomain = process.env.IFLYTEK_STT_DOMAIN;
-
+    // 安全约定：密钥仅来自用户在系统设置中的本地配置（localStorage），
+    // 不从环境变量注入，避免密钥进入前端构建产物。
     return {
-        appId: envAppId || (localStorage.getItem(IFLYTEK_APP_ID_KEY) || '').trim(),
-        apiSecret: envApiSecret || (localStorage.getItem(IFLYTEK_API_SECRET_KEY) || '').trim(),
-        apiKey: envApiKey || (localStorage.getItem(IFLYTEK_API_KEY_KEY) || '').trim(),
-        domain: envDomain || (localStorage.getItem(IFLYTEK_DOMAIN_KEY) || 'generalv3.5').trim(),
-        sttDomain: envSttDomain || (localStorage.getItem(IFLYTEK_STT_DOMAIN_KEY) || 'iat').trim(),
+        appId: (localStorage.getItem(IFLYTEK_APP_ID_KEY) || '').trim(),
+        apiSecret: (localStorage.getItem(IFLYTEK_API_SECRET_KEY) || '').trim(),
+        apiKey: (localStorage.getItem(IFLYTEK_API_KEY_KEY) || '').trim(),
+        domain: (localStorage.getItem(IFLYTEK_DOMAIN_KEY) || 'generalv3.5').trim(),
+        sttDomain: (localStorage.getItem(IFLYTEK_STT_DOMAIN_KEY) || 'iat').trim(),
     };
 };
 

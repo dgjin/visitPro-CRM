@@ -12,6 +12,15 @@ dist
 dist-ssr
 *.local
 
+# Spring Boot 后端构建产物
+server-spring/target/
+
+# 本地 ASR 服务（Python 虚拟环境、日志、缓存）
+local-asr/.venv/
+local-asr/logs/
+local-asr/__pycache__/
+local-asr/**/*.log
+
 # 后端数据库连接配置（含密码）
 server/.env
 

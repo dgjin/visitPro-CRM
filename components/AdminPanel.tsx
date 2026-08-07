@@ -19,6 +19,7 @@ interface AdminPanelProps {
 const AI_MODEL_KEY = 'visitpro_ai_model';
 const DEEPSEEK_KEY_KEY = 'visitpro_deepseek_key';
 const OLLAMA_MODEL_KEY = 'visitpro_ollama_model';
+const GEMINI_KEY_KEY = 'visitpro_gemini_key';
 
 // CSS Variables for the design system
 const cssVariables = {
@@ -123,6 +124,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [iflytekSttDomain, setIflytekSttDomain] = useState('iat');
   const [showIflytekKey, setShowIflytekKey] = useState(false);
   const [showIflytekSecret, setShowIflytekSecret] = useState(false);
+  const [geminiKey, setGeminiKey] = useState('');
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
   
   // Custom Field State
   const [activeTab, setActiveTab] = useState<EntityType>('CLIENT');
@@ -133,33 +136,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [fieldType, setFieldType] = useState<FieldType>('text');
   const [fieldOptions, setFieldOptions] = useState('');
 
-  const isDeepSeekEnvConfigured = !!process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_API_KEY !== 'undefined';
-  const isKimiEnvConfigured = !!process.env.KIMI_API_KEY && process.env.KIMI_API_KEY !== 'undefined';
-  const isIflytekEnvConfigured = !!process.env.IFLYTEK_APP_ID && process.env.IFLYTEK_APP_ID !== 'undefined';
-
   useEffect(() => {
     // Load iFlytek Config
-    if (!isIflytekEnvConfigured) {
-        const iflyConfig = getIflytekConfig();
-        setIflytekAppId(iflyConfig.appId || '');
-        setIflytekApiSecret(iflyConfig.apiSecret || '');
-        setIflytekApiKey(iflyConfig.apiKey || '');
-        setIflytekDomain(iflyConfig.domain || 'generalv3.5');
-        setIflytekSttDomain(iflyConfig.sttDomain || 'iat');
-    }
+    const iflyConfig = getIflytekConfig();
+    setIflytekAppId(iflyConfig.appId || '');
+    setIflytekApiSecret(iflyConfig.apiSecret || '');
+    setIflytekApiKey(iflyConfig.apiKey || '');
+    setIflytekDomain(iflyConfig.domain || 'generalv3.5');
+    setIflytekSttDomain(iflyConfig.sttDomain || 'iat');
 
     // Load AI Config
     setAiModel((localStorage.getItem(AI_MODEL_KEY) as AIModelType) || 'ollama');
-    if (!isDeepSeekEnvConfigured) {
-        setDeepseekKey(localStorage.getItem(DEEPSEEK_KEY_KEY) || '');
-    }
-    if (!isKimiEnvConfigured) {
-        setKimiKey(localStorage.getItem('visitpro_kimi_key') || '');
-    }
+    setDeepseekKey(localStorage.getItem(DEEPSEEK_KEY_KEY) || '');
+    setKimiKey(localStorage.getItem('visitpro_kimi_key') || '');
+    setGeminiKey(localStorage.getItem(GEMINI_KEY_KEY) || '');
     // Load Ollama Config
     setOllamaModel(localStorage.getItem(OLLAMA_MODEL_KEY) || DEFAULT_OLLAMA_MODEL);
     loadOllamaModels();
-  }, [isIflytekEnvConfigured, isDeepSeekEnvConfigured, isKimiEnvConfigured]);
+  }, []);
 
   // Reset form when switching tabs
   useEffect(() => {
@@ -234,12 +228,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleSaveAIConfig = () => {
       localStorage.setItem(AI_MODEL_KEY, aiModel);
       localStorage.setItem(OLLAMA_MODEL_KEY, ollamaModel);
-      if (!isDeepSeekEnvConfigured) {
-          localStorage.setItem(DEEPSEEK_KEY_KEY, deepseekKey.trim());
-      }
-      if (!isKimiEnvConfigured) {
-          localStorage.setItem('visitpro_kimi_key', kimiKey.trim());
-      }
+      localStorage.setItem(DEEPSEEK_KEY_KEY, deepseekKey.trim());
+      localStorage.setItem('visitpro_kimi_key', kimiKey.trim());
+      localStorage.setItem(GEMINI_KEY_KEY, geminiKey.trim());
       alert("AI 模型配置已更新");
   };
 
@@ -558,40 +549,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </a>
                 </div>
                 
-                {isDeepSeekEnvConfigured ? (
-                  <div 
-                    className="p-3 flex items-center"
-                    style={{ background: cssVariables.successSubtle, borderRadius: 'var(--radius)' }}
+                <div className="relative">
+                  <input 
+                    type={showDeepseekKey ? "text" : "password"}
+                    value={deepseekKey}
+                    onChange={(e) => setDeepseekKey(e.target.value)}
+                    className="w-full px-4 py-2.5 pr-10 text-sm outline-none transition-all focus:ring-2"
+                    style={{ 
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      borderRadius: 'var(--radius)'
+                    }}
+                    placeholder="sk-..."
+                  />
+                  <button
+                    onClick={() => setShowDeepseekKey(!showDeepseekKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
+                    style={{ color: cssVariables.textMuted }}
                   >
-                    <CheckCircle className="w-4 h-4 mr-2" style={{ color: cssVariables.success }} />
-                    <span className="text-sm" style={{ color: cssVariables.success }}>
-                      API Key 已通过环境变量配置
-                    </span>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <input 
-                      type={showDeepseekKey ? "text" : "password"}
-                      value={deepseekKey}
-                      onChange={(e) => setDeepseekKey(e.target.value)}
-                      className="w-full px-4 py-2.5 pr-10 text-sm outline-none transition-all focus:ring-2"
-                      style={{ 
-                        border: '1px solid var(--border)',
-                        background: 'var(--bg-primary)',
-                        color: 'var(--text-primary)',
-                        borderRadius: 'var(--radius)'
-                      }}
-                      placeholder="sk-..."
-                    />
-                    <button
-                      onClick={() => setShowDeepseekKey(!showDeepseekKey)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
-                      style={{ color: cssVariables.textMuted }}
-                    >
-                      {showDeepseekKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                )}
+                    {showDeepseekKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -621,40 +600,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </a>
                 </div>
                 
-                {isKimiEnvConfigured ? (
-                  <div 
-                    className="p-3 flex items-center"
-                    style={{ background: cssVariables.successSubtle, borderRadius: 'var(--radius)' }}
+                <div className="relative">
+                  <input 
+                    type={showKimiKey ? "text" : "password"}
+                    value={kimiKey}
+                    onChange={(e) => setKimiKey(e.target.value)}
+                    className="w-full px-4 py-2.5 pr-10 text-sm outline-none transition-all focus:ring-2"
+                    style={{ 
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      borderRadius: 'var(--radius)'
+                    }}
+                    placeholder="sk-..."
+                  />
+                  <button
+                    onClick={() => setShowKimiKey(!showKimiKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
+                    style={{ color: cssVariables.textMuted }}
                   >
-                    <CheckCircle className="w-4 h-4 mr-2" style={{ color: cssVariables.success }} />
-                    <span className="text-sm" style={{ color: cssVariables.success }}>
-                      API Key 已通过环境变量配置
-                    </span>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <input 
-                      type={showKimiKey ? "text" : "password"}
-                      value={kimiKey}
-                      onChange={(e) => setKimiKey(e.target.value)}
-                      className="w-full px-4 py-2.5 pr-10 text-sm outline-none transition-all focus:ring-2"
-                      style={{ 
-                        border: '1px solid var(--border)',
-                        background: 'var(--bg-primary)',
-                        color: 'var(--text-primary)',
-                        borderRadius: 'var(--radius)'
-                      }}
-                      placeholder="sk-..."
-                    />
-                    <button
-                      onClick={() => setShowKimiKey(!showKimiKey)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
-                      style={{ color: cssVariables.textMuted }}
-                    >
-                      {showKimiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                )}
+                    {showKimiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -676,16 +643,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             {aiModel === 'gemini' && (
               <div 
-                className="p-4 flex items-start space-x-3"
-                style={{ 
-                  background: cssVariables.successSubtle,
-                  border: `1px solid ${cssVariables.successLight}`,
-                  borderRadius: 'var(--radius-md)'
-                }}
+                className="p-4 animate-fade-in-down"
+                style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}
               >
-                <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: cssVariables.success }} />
-                <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  Gemini API Key 已通过环境变量配置，无需额外设置。
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                    GEMINI API KEY
+                  </label>
+                </div>
+                <div className="relative">
+                  <input 
+                    type={showGeminiKey ? "text" : "password"}
+                    value={geminiKey}
+                    onChange={(e) => setGeminiKey(e.target.value)}
+                    className="w-full px-4 py-2.5 pr-10 text-sm outline-none transition-all focus:ring-2"
+                    style={{ 
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                      borderRadius: 'var(--radius)'
+                    }}
+                    placeholder="AIza..."
+                  />
+                  <button
+                    onClick={() => setShowGeminiKey(!showGeminiKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
+                    style={{ color: cssVariables.textMuted }}
+                  >
+                    {showGeminiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
             )}
@@ -1043,27 +1029,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
 
             <div className="p-6">
-              {isIflytekEnvConfigured ? (
-                <div 
-                  className="p-4 flex items-start space-x-3"
-                  style={{ 
-                    background: cssVariables.successSubtle,
-                    border: `1px solid ${cssVariables.successLight}`,
-                    borderRadius: 'var(--radius-md)'
-                  }}
-                >
-                  <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: cssVariables.success }} />
-                  <div>
-                    <p className="font-medium text-sm" style={{ color: cssVariables.success }}>
-                      已通过环境变量配置
-                    </p>
-                    <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                      系统已检测到 IFLYTEK_APP_ID 等变量
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4">
+              <div className="space-y-4">
                   <div>
                     <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-tertiary)' }}>
                       APP ID
@@ -1193,7 +1159,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </button>
                   </div>
                 </div>
-              )}
             </div>
           </section>
 
@@ -1413,10 +1378,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </div>
               <div>
                 <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  环境变量诊断
+                  密钥配置状态
                 </h3>
                 <p className="text-xs" style={{ color: cssVariables.textMuted }}>
-                  检查系统环境变量配置状态
+                  检查第三方服务密钥配置状态（仅保存在本机浏览器中）
                 </p>
               </div>
             </div>
@@ -1427,9 +1392,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               className="overflow-hidden"
               style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}
             >
-              <EnvStatusRow label="API_KEY (Gemini)" value={process.env.API_KEY} isSecret={true} />
-              <EnvStatusRow label="DEEPSEEK_API_KEY" value={process.env.DEEPSEEK_API_KEY} isSecret={true} />
-              <EnvStatusRow label="IFLYTEK_APP_ID" value={process.env.IFLYTEK_APP_ID} isSecret={false} />
+              <EnvStatusRow label="Gemini API Key" value={localStorage.getItem(GEMINI_KEY_KEY) || undefined} isSecret={true} />
+              <EnvStatusRow label="DeepSeek API Key" value={localStorage.getItem(DEEPSEEK_KEY_KEY) || undefined} isSecret={true} />
+              <EnvStatusRow label="Kimi API Key" value={localStorage.getItem('visitpro_kimi_key') || undefined} isSecret={true} />
             </div>
             <div 
               className="mt-4 p-3 flex items-start space-x-2"
@@ -1440,7 +1405,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             >
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: cssVariables.warning }} />
               <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                修改 .env 文件后，必须 <strong>重启开发服务器</strong> (Ctrl+C 然后再次 npm run dev) 才能生效。
+                出于安全考虑，密钥不再通过 .env 注入前端，请在上方各服务配置区直接填写，保存后立即生效。
               </p>
             </div>
           </div>

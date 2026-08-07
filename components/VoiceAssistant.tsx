@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Mic, Square, Sparkles, Loader2, X } from 'lucide-react';
+import { getAIConfig } from '../services/geminiService';
 
 interface VoiceCommand {
   action: 'NAVIGATE' | 'SEARCH' | 'CREATE_VISIT' | 'CREATE_CLIENT' | 'SWITCH_THEME' | 'UNKNOWN';
@@ -79,7 +80,13 @@ export const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onCommand }) => 
     setIsProcessing(true);
     try {
       const base64Audio = await blobToBase64(audioBlob);
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const { geminiKey } = getAIConfig();
+      if (!geminiKey) {
+        setFeedback('请先在系统设置中配置 Gemini API Key');
+        setIsProcessing(false);
+        return;
+      }
+      const ai = new GoogleGenAI({ apiKey: geminiKey });
       
       const systemPrompt = `You are a CRM Voice Assistant. Analyze the user's audio command (in Chinese) and extract the intent into a JSON object.
 
