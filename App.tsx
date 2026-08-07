@@ -246,6 +246,16 @@ const App: React.FC = () => {
       setTimeout(() => setTriggerNewVisit(true), 50);
   };
 
+  // 客户详情 → 登记拜访：带入客户与首位联系人信息，跳转拜访编辑器
+  const handleCreateVisitFromClient = (client: Client) => {
+      handleCheckIn({
+          clientId: client.id,
+          clientName: client.name,
+          clientContact: client.contacts?.[0]?.name,
+          clientContactRole: client.contacts?.[0]?.role,
+      });
+  };
+
   const handleVoiceCommand = (cmd: any) => {
       if (!currentUser) return; // Ignore if not logged in
       console.log("Voice Command Received:", cmd);
@@ -370,6 +380,7 @@ const App: React.FC = () => {
                   initialSearchTerm={globalSearchTerm}
                   shouldCreateNew={triggerNewClient}
                   onResetTrigger={() => { setTriggerNewClient(false); setGlobalSearchTerm(''); }}
+                  onCreateVisit={handleCreateVisitFromClient}
                 />
               )}
               {currentView === 'VISITS' && (

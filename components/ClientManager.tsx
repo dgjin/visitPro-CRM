@@ -24,7 +24,8 @@ import {
   Filter,
   Landmark,
   FileText,
-  ClipboardCheck
+  ClipboardCheck,
+  ClipboardList
 } from 'lucide-react';
 import { upsertClient, deleteClient } from '../services/apiService';
 import ClientDetailTabs, { NATIONAL_STANDARD_INDUSTRIES, CLIENT_TYPES } from './ClientDetailTabs';
@@ -45,6 +46,8 @@ interface ClientManagerProps {
   initialSearchTerm?: string;
   shouldCreateNew?: boolean;
   onResetTrigger?: () => void;
+  /** 从客户详情跳转登记拜访（客户信息由 App 层带入拜访编辑器） */
+  onCreateVisit?: (client: Client) => void;
 }
 
 export const ClientManager: React.FC<ClientManagerProps> = ({ 
@@ -54,7 +57,8 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
   currentUser,
   initialSearchTerm,
   shouldCreateNew,
-  onResetTrigger
+  onResetTrigger,
+  onCreateVisit
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<ClientType | ''>('');
@@ -172,6 +176,17 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       ownerName: currentUser?.name || "未知用户"
     };
     setSelectedClient(newClient);
+  };
+
+  /** 从详情跳转登记拜访：无联系人时先提示补充，避免拜访对象信息缺失 */
+  const handleCreateVisit = () => {
+    if (!selectedClient || !onCreateVisit) return;
+    if (!selectedClient.contacts || selectedClient.contacts.length === 0) {
+      alert('该客户暂无联系人，请先在「基础资料 - 联系人」中添加联系人信息，再登记拜访记录。');
+      return;
+    }
+    onCreateVisit(selectedClient);
+    setSelectedClient(null);
   };
 
   const handleSaveClient = async () => {
@@ -472,6 +487,16 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                          <p className="text-xs text-[var(--text-tertiary)] mt-0.5">ID: {selectedClient.id}</p>
                       </div>
                    </div>
+                   {onCreateVisit && (
+                      <button
+                         onClick={handleCreateVisit}
+                         title="将客户与联系人信息带入拜访记录"
+                         className="gradient-primary text-white px-4 py-2 rounded-xl text-sm font-medium shadow-md hover:opacity-90 transition-opacity flex items-center gap-1.5 shrink-0"
+                      >
+                         <ClipboardList className="w-4 h-4" />
+                         登记拜访
+                      </button>
+                   )}
                 </div>
                 <ClientDetailTabs
                    key={selectedClient.id}
