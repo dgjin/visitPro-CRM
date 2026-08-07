@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.visitpro.local-asr</string>
+
+    <!-- 使用项目内 venv 的 Python 启动 FunASR 服务 -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/dgjin/dgjinapp/visitpro-crm/local-asr/.venv/bin/python</string>
+        <string>/Users/dgjin/dgjinapp/visitpro-crm/local-asr/server.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/dgjin/dgjinapp/visitpro-crm/local-asr</string>
+
+    <!-- 登录时自动启动 -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- 异常退出时自动拉起（正常退出则不重启） -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- 防止崩溃循环重启过快 -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/Users/dgjin/dgjinapp/visitpro-crm/local-asr/logs/asr.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/dgjin/dgjinapp/visitpro-crm/local-asr/logs/asr.err.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
