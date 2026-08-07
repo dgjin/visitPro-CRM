@@ -1,11 +1,8 @@
-import { defineConfig, loadEnv } from 'vite';
+/// <reference types="vitest/config" />
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
-  // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
-  const env = loadEnv(mode, '.', '');
-
+export default defineConfig(() => {
   return {
     plugins: [react()],
     server: {
@@ -16,16 +13,12 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       // Polyfill global process to prevent "process is not defined" errors in some libraries
+      // 安全约定：禁止在此注入任何 API 密钥，密钥一律由用户在系统设置中配置（localStorage）
       'process.env': {},
-      // Manually map process.env keys to the loaded environment variables
-      'process.env.API_KEY': JSON.stringify(env.API_KEY || ''),
-      'process.env.DEEPSEEK_API_KEY': JSON.stringify(env.DEEPSEEK_API_KEY || ''),
-      'process.env.IFLYTEK_APP_ID': JSON.stringify(env.IFLYTEK_APP_ID || ''),
-      'process.env.IFLYTEK_API_SECRET': JSON.stringify(env.IFLYTEK_API_SECRET || ''),
-      'process.env.IFLYTEK_API_KEY': JSON.stringify(env.IFLYTEK_API_KEY || ''),
-      'process.env.IFLYTEK_DOMAIN': JSON.stringify(env.IFLYTEK_DOMAIN || ''),
-      'process.env.IFLYTEK_STT_DOMAIN': JSON.stringify(env.IFLYTEK_STT_DOMAIN || ''),
-      'process.env.KIMI_API_KEY': JSON.stringify(env.KIMI_API_KEY || ''),
+    },
+    test: {
+      // 前端单测仅扫描 services/components 目录（server/ 为旧 Node 后端的测试，由 Node 侧单独运行）
+      include: ['services/**/*.test.{ts,tsx}', 'components/**/*.test.{ts,tsx}'],
     },
   };
 });

@@ -1,18 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { Layout } from './components/Layout';
-import { Dashboard } from './components/Dashboard';
-import { ClientManager } from './components/ClientManager';
-import { VisitManager } from './components/VisitManager';
-import { AiQueryAssistant } from './components/AiQueryAssistant';
-import { AdminPanel } from './components/AdminPanel';
-import { UserManager } from './components/UserManager';
-import { DepartmentManager } from './components/DepartmentManager';
-import { RoleManager } from './components/RoleManager';
-import { VoiceAssistant } from './components/VoiceAssistant'; 
 import { LoginPage } from './components/LoginPage'; // New
 import { ForceChangePasswordModal } from './components/ForceChangePasswordModal'; // New
-import { ViewState, Client, Visit, User, ClientStatus, Sentiment, CustomFieldDefinition, Department, Role } from './types';
+import { ViewState, Client, Visit, User, Sentiment, CustomFieldDefinition, Department, Role } from './types';
 import { fetchClients, fetchVisits, initApi, fetchUsers, fetchDepartments, fetchRoles, isConfiguredFromEnv, checkConnection, upsertUser, fetchMe, clearToken } from './services/apiService';
+
+// 重型视图组件按路由级分包（React.lazy），降低首屏主包体积
+const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
+const ClientManager = lazy(() => import('./components/ClientManager').then(m => ({ default: m.ClientManager })));
+const VisitManager = lazy(() => import('./components/VisitManager').then(m => ({ default: m.VisitManager })));
+const AiQueryAssistant = lazy(() => import('./components/AiQueryAssistant').then(m => ({ default: m.AiQueryAssistant })));
+const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({ default: m.AdminPanel })));
+const UserManager = lazy(() => import('./components/UserManager').then(m => ({ default: m.UserManager })));
+const DepartmentManager = lazy(() => import('./components/DepartmentManager').then(m => ({ default: m.DepartmentManager })));
+const RoleManager = lazy(() => import('./components/RoleManager').then(m => ({ default: m.RoleManager })));
+// 语音助手暂时隐藏，保留引用待恢复（懒加载分包，未渲染时不会请求）
+const VoiceAssistant = lazy(() => import('./components/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
 // Color Palettes
 const THEME_PALETTES: Record<string, Record<number, string>> = {
@@ -171,13 +174,14 @@ const App: React.FC = () => {
             fetchRoles()
         ]);
         
-        setClients(dbClients || []);
-        setVisits(dbVisits || []);
-        setUsers(dbUsers || []);
-        setDepartments(dbDepts || []);
-        setRoles(dbRoles || []);
+        setClients(dbClients);
+        setVisits(dbVisits);
+        setUsers(dbUsers);
+        setDepartments(dbDepts);
+        setRoles(dbRoles);
       } catch (err) {
          console.error("Failed to fetch data from API:", err);
+         setConnectionMsg(`数据加载失败：${(err as Error).message || '未知错误'}，请检查后端服务`);
       }
     }
     
@@ -340,6 +344,11 @@ const App: React.FC = () => {
               roles={roles}
               onLogout={handleLogout}
             >
+              <Suspense fallback={
+                <div className="flex items-center justify-center py-24">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary-600)]"></div>
+                </div>
+              }>
               {currentView === 'DASHBOARD' && (
                 <Dashboard 
                   visits={visits} 
@@ -410,9 +419,11 @@ const App: React.FC = () => {
                   onConfigSave={refreshData}
                 />
               )}
+              </Suspense>
             </Layout>
             
-            <VoiceAssistant onCommand={handleVoiceCommand} />
+            {/* 语音助手暂时隐藏，恢复时取消以下注释即可
+            <VoiceAssistant onCommand={handleVoiceCommand} /> */}
           </>
       )}
     </>

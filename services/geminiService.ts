@@ -1,174 +1,55 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { generateSparkContent, transcribeAudioWithIflytek } from "./iflytekService";
+import { isLocalAsrAvailable, transcribeAudioWithLocalAsr } from "./localAsrService";
+import {
+  getAIConfig,
+  createGeminiClient,
+  callOllama,
+  callDeepSeek,
+  callKimi,
+  isProviderConfigError,
+  fallbackToOllama,
+  GEMINI_KEY_KEY,
+} from "./aiProviders";
 import { Visit, Sentiment, AIModelType } from "../types";
 
-const AI_MODEL_KEY = 'visitpro_ai_model';
-const DEEPSEEK_KEY_KEY = 'visitpro_deepseek_key';
-const KIMI_KEY_KEY = 'visitpro_kimi_key';
-const OLLAMA_MODEL_KEY = 'visitpro_ollama_model';
-
-// 本地 Ollama 默认模型（可在系统设置中切换为已安装的任意模型）
-export const DEFAULT_OLLAMA_MODEL = 'qwen3.6:latest';
-
-export const getAIConfig = () => {
-  // STRICT ENV PRIORITY
-  // Check process.env first for all keys. 
-  // If present in env, it overrides any local setting.
-  const envDeepSeekKey = process.env.DEEPSEEK_API_KEY;
-  const envKimiKey = process.env.KIMI_API_KEY;
-
-  return {
-    // 默认使用本地 Ollama 模型
-    model: localStorage.getItem(AI_MODEL_KEY) || 'ollama',
-    // Ollama: 具体模型名称
-    ollamaModel: localStorage.getItem(OLLAMA_MODEL_KEY) || DEFAULT_OLLAMA_MODEL,
-    // API key exclusively from process.env for Gemini
-    geminiKey: process.env.API_KEY, 
-    // Deepseek: Env > LocalStorage
-    deepseekKey: envDeepSeekKey || localStorage.getItem(DEEPSEEK_KEY_KEY) || '',
-    // Kimi: Env > LocalStorage
-    kimiKey: envKimiKey || localStorage.getItem(KIMI_KEY_KEY) || ''
-  };
-};
+// 兼容性再导出：提供商配置与调用实现已迁移至 aiProviders.ts
+export {
+  getAIConfig,
+  createGeminiClient,
+  callOllama,
+  callDeepSeek,
+  callKimi,
+  GEMINI_KEY_KEY,
+  DEFAULT_OLLAMA_MODEL,
+  fetchOllamaModels,
+} from "./aiProviders";
 
 /**
- * 获取本地 Ollama 已安装模型列表（经后端代理）
- */
-export const fetchOllamaModels = async (): Promise<string[]> => {
-  const res = await fetch('/api/ollama/models');
-  const data = await res.json();
-  if (!res.ok || !data.success) {
-    throw new Error(data.message || '无法连接 Ollama 服务');
-  }
-  return data.models || [];
-};
-
-/**
- * 调用本地 Ollama 模型（OpenAI 兼容接口，经后端 /api/ollama/chat 代理）
- */
-export const callOllama = async (messages: any[], jsonMode: boolean = false) => {
-  const config = getAIConfig();
-  try {
-    const response = await fetch('/api/ollama/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: config.ollamaModel,
-        messages: messages,
-        jsonMode: jsonMode
-      })
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data.error || `Ollama API Error: ${response.status}`);
-    }
-    return data.content || '';
-  } catch (error: any) {
-    console.error("Ollama Request Failed:", error);
-    if (error.message?.includes('Failed to fetch')) {
-      throw new Error('后端服务未启动，无法代理 Ollama 请求，请先运行 npm run server');
-    }
-    throw error;
-  }
-};
-
-export const callDeepSeek = async (messages: any[], jsonMode: boolean = false) => {
-  const config = getAIConfig();
-  if (!config.deepseekKey) throw new Error("DeepSeek API Key not configured. Please configure it in Settings.");
-  
-  try {
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.deepseekKey}`
-        },
-        body: JSON.stringify({
-            model: "deepseek-chat",
-            messages: messages,
-            response_format: jsonMode ? { type: "json_object" } : undefined,
-            temperature: 1.0
-        })
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        let errorMsg = `DeepSeek API Error: ${response.status}`;
-        try {
-            const errorJson = JSON.parse(errorText);
-            if (errorJson.error && errorJson.error.message) {
-                errorMsg = errorJson.error.message;
-            }
-        } catch (e) {
-            // ignore parse error, use status text
-            if (response.statusText) errorMsg += ` ${response.statusText}`;
-        }
-        throw new Error(errorMsg);
-    }
-
-    const data = await response.json();
-    return data.choices[0].message.content;
-  } catch (error: any) {
-    console.error("DeepSeek Request Failed:", error);
-    throw error;
-  }
-};
-
-export const callKimi = async (messages: any[], jsonMode: boolean = false) => {
-  const config = getAIConfig();
-  if (!config.kimiKey) throw new Error("Kimi API Key not configured. Please configure it in Settings.");
-  
-  try {
-    const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.kimiKey}`
-        },
-        body: JSON.stringify({
-            model: "moonshot-v1-8k",
-            messages: messages,
-            response_format: jsonMode ? { type: "json_object" } : undefined,
-            temperature: 0.7
-        })
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        let errorMsg = `Kimi API Error: ${response.status}`;
-        try {
-            const errorJson = JSON.parse(errorText);
-            if (errorJson.error && errorJson.error.message) {
-                errorMsg = errorJson.error.message;
-            }
-        } catch (e) {
-            if (response.statusText) errorMsg += ` ${response.statusText}`;
-        }
-        throw new Error(errorMsg);
-    }
-
-    const data = await response.json();
-    return data.choices[0].message.content;
-  } catch (error: any) {
-    console.error("Kimi Request Failed:", error);
-    throw error;
-  }
-};
-
-/**
- * Transcribes audio data to text using iFlytek Speech-to-Text API.
+ * Transcribes audio data to text.
+ * 默认使用本地 FunASR 服务（local-asr），不可用或失败时回退到科大讯飞云端。
  * @param base64Data Base64 encoded audio string (with or without data:audio/xxx;base64, prefix)
- * @param mimeType The mime type of the audio (e.g., 'audio/mp3', 'audio/webm') - currently only supports PCM 16kHz
+ * @param mimeType The mime type of the audio (e.g., 'audio/mp3', 'audio/webm')
  */
 export const transcribeAudio = async (base64Data: string, mimeType: string = 'audio/webm') => {
+  // 优先使用本地 FunASR 服务
+  if (await isLocalAsrAvailable()) {
+    try {
+      const result = await transcribeAudioWithLocalAsr(base64Data, mimeType);
+      if (result) return result;
+      console.warn("本地语音识别未返回结果，回退到云端");
+    } catch (error) {
+      console.warn("本地语音识别失败，回退到云端:", error);
+    }
+  }
+
   try {
-      // Use iFlytek for transcription
+      // Fallback: iFlytek cloud transcription
       const result = await transcribeAudioWithIflytek(base64Data);
       return result || "";
   } catch (error: any) {
       console.error("Transcribe Audio Error:", error);
-      throw new Error(error.message || "语音转写失败，请确保科大讯飞配置正确且网络连接正常。");
+      throw new Error(error.message || "语音转写失败：本地 ASR 服务不可用且科大讯飞配置有误。");
   }
 };
 
@@ -227,8 +108,7 @@ export const generateClientProfile = async (clientName: string, industry: string
         resultText = await generateSparkContent(systemPrompt + "\n" + userPrompt + "\n请直接返回JSON字符串。");
     } else {
         // Gemini
-        // Always use process.env.API_KEY directly as per guidelines
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = createGeminiClient();
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: [{ parts: [{ text: userPrompt }] }],
@@ -285,6 +165,10 @@ export const generateClientProfile = async (clientName: string, industry: string
     
     // 解析具体的错误信息
     let errorMessage = error.message || '请检查AI配置和网络连接';
+    if (activeModel !== 'ollama' && isProviderConfigError(errorMessage)) {
+        fallbackToOllama(activeModel, errorMessage);
+        return generateClientProfile(clientName, industry, region, 'ollama');
+    }
     let suggestion = '';
     
     if (errorMessage.includes('high demand') || errorMessage.includes('UNAVAILABLE') || errorMessage.includes('503')) {
@@ -343,7 +227,7 @@ export const analyzeVisitNote = async (note: string, clientName: string, modelOv
              resultText = await generateSparkContent(systemPrompt + "\n" + userPrompt + "\n请直接返回JSON字符串。");
         } else {
              // Default to Gemini
-             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+             const ai = createGeminiClient();
              const response = await ai.models.generateContent({
                 model: "gemini-3-flash-preview",
                 contents: [{ parts: [{ text: userPrompt }] }],
@@ -371,6 +255,10 @@ export const analyzeVisitNote = async (note: string, clientName: string, modelOv
         
         // 解析具体的错误信息
         let errorMessage = e.message || `${activeModel} 服务暂时不可用`;
+        if (activeModel !== 'ollama' && isProviderConfigError(errorMessage)) {
+            fallbackToOllama(activeModel, errorMessage);
+            return analyzeVisitNote(note, clientName, 'ollama');
+        }
         let suggestion = '';
         
         if (errorMessage.includes('high demand') || errorMessage.includes('UNAVAILABLE') || errorMessage.includes('503')) {
@@ -427,7 +315,7 @@ export const generateFollowUpEmail = async (visit: Visit, tone: string, modelOve
         } else if (activeModel === 'spark') {
             return await generateSparkContent(systemPrompt + "\n" + userPrompt);
         } else {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+            const ai = createGeminiClient();
             const response = await ai.models.generateContent({
                 model: "gemini-3-flash-preview",
                 contents: [{ parts: [{ text: userPrompt }] }],
@@ -442,6 +330,10 @@ export const generateFollowUpEmail = async (visit: Visit, tone: string, modelOve
         
         // 解析具体的错误信息
         let errorMessage = e.message || '请检查AI配置和网络连接';
+        if (activeModel !== 'ollama' && isProviderConfigError(errorMessage)) {
+            fallbackToOllama(activeModel, errorMessage);
+            return generateFollowUpEmail(visit, tone, 'ollama');
+        }
         let suggestion = '';
         
         // 处理Gemini模型的高需求错误
@@ -530,7 +422,7 @@ export const organizeVoiceTranscript = async (transcript: string, clientName: st
              resultText = await generateSparkContent(systemPrompt + "\n" + userPrompt + "\n请直接返回JSON字符串。");
         } else {
              // Default to Gemini
-             const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+             const ai = createGeminiClient();
              const response = await ai.models.generateContent({
                 model: "gemini-3-flash-preview",
                 contents: [{ parts: [{ text: userPrompt }] }],
@@ -560,6 +452,10 @@ export const organizeVoiceTranscript = async (transcript: string, clientName: st
         
         // 解析具体的错误信息
         let errorMessage = e.message || `${activeModel} 服务暂时不可用`;
+        if (activeModel !== 'ollama' && isProviderConfigError(errorMessage)) {
+            fallbackToOllama(activeModel, errorMessage);
+            return organizeVoiceTranscript(transcript, clientName, 'ollama');
+        }
         let suggestion = '';
         
         if (errorMessage.includes('high demand') || errorMessage.includes('UNAVAILABLE') || errorMessage.includes('503')) {

@@ -165,13 +165,9 @@ const cleanCustomFields = (fields?: Record<string, any>) => {
 };
 
 // --- Clients ---
-export const fetchClients = async (): Promise<Client[] | null> => {
-  try {
-    return await apiFetch('/clients');
-  } catch (e) {
-    console.error('Error fetching clients:', e);
-    return null;
-  }
+// 列表查询类接口统一抛错，由调用点决定降级策略（App.tsx 有 try/catch 兜底）
+export const fetchClients = async (): Promise<Client[]> => {
+  return await apiFetch('/clients');
 };
 
 export const upsertClient = async (clientData: Client) => {
@@ -191,13 +187,8 @@ export const deleteClient = async (id: string) => {
 };
 
 // --- Visits ---
-export const fetchVisits = async (): Promise<Visit[] | null> => {
-  try {
-    return await apiFetch('/visits');
-  } catch (e) {
-    console.error('Error fetching visits:', e);
-    return null;
-  }
+export const fetchVisits = async (): Promise<Visit[]> => {
+  return await apiFetch('/visits');
 };
 
 export const upsertVisit = async (visitData: Visit) => {
@@ -217,12 +208,8 @@ export const deleteVisit = async (id: string) => {
 };
 
 // --- Roles ---
-export const fetchRoles = async (): Promise<Role[] | null> => {
-  try {
-    return await apiFetch('/roles');
-  } catch {
-    return null;
-  }
+export const fetchRoles = async (): Promise<Role[]> => {
+  return await apiFetch('/roles');
 };
 
 export const upsertRole = async (roleData: Role) => {
@@ -234,12 +221,8 @@ export const deleteRole = async (id: string) => {
 };
 
 // --- Departments ---
-export const fetchDepartments = async (): Promise<Department[] | null> => {
-  try {
-    return await apiFetch('/departments');
-  } catch {
-    return null;
-  }
+export const fetchDepartments = async (): Promise<Department[]> => {
+  return await apiFetch('/departments');
 };
 
 export const upsertDepartment = async (deptData: Department) => {
@@ -251,17 +234,13 @@ export const deleteDepartment = async (id: string) => {
 };
 
 // --- Users ---
-export const fetchUsers = async (): Promise<User[] | null> => {
-  try {
-    const data = await apiFetch('/users');
-    // Map snake_case DB columns to camelCase JS properties
-    return data.map((u: any) => ({
-      ...u,
-      themePreference: u.theme_preference,
-    })) as User[];
-  } catch {
-    return null;
-  }
+export const fetchUsers = async (): Promise<User[]> => {
+  const data = await apiFetch('/users');
+  // Map snake_case DB columns to camelCase JS properties
+  return data.map((u: any) => ({
+    ...u,
+    themePreference: u.theme_preference,
+  })) as User[];
 };
 
 export const upsertUser = async (userData: User) => {
@@ -311,11 +290,13 @@ export interface AiChart {
   title: string;
   categories: string[];
   series: { name: string; data: number[] }[];
+  index?: number; // 复合计划中的子分析序号
 }
 
 export interface AiTable {
   columns: string[];
   rows: (string | number)[][];
+  index?: number; // 复合计划中的子分析序号
 }
 
 export interface AiPlan {
@@ -326,6 +307,8 @@ export interface AiPlan {
   owner_names: string[];
   chart_type: string;
   title: string;
+  index?: number;          // 复合计划中的子分析序号
+  analysis_count?: number; // 复合计划的子分析总数
 }
 
 export const getAiConfig = async (): Promise<{ enabled: boolean }> => {
