@@ -3,7 +3,7 @@
 // 自 ClientManager.tsx 拆分（P2 组件分层），状态与逻辑随迁
 // ==========================================
 import React, { useState, useEffect } from 'react';
-import { Client, ClientStatus, ClientType, TypeProfile, AgreementInfo, ProjectInfo, CustomFieldDefinition, Contact, Shareholder, Subsidiary, AIModelType } from '../types';
+import { Client, ClientType, TypeProfile, AgreementInfo, ProjectInfo, CustomFieldDefinition, Contact, Shareholder, Subsidiary, AIModelType } from '../types';
 import {
   Search, Plus, MapPin, Mail, Phone, Building, Briefcase,
   X, Loader2, BarChart2, Users, Save, Edit2, Trash2, PieChart as PieIcon,
@@ -261,8 +261,6 @@ const EquityStructureMap = ({
   );
 };
 
-// Helper function to get status badge class
-
 export const ClientDetailTabs: React.FC<{
   client: Client;
   update: (fn: (prev: Client) => Client | null) => void;
@@ -492,12 +490,14 @@ export const ClientDetailTabs: React.FC<{
                          <X className="w-5 h-5" />
                       </button>
                    </div>
+                </div>
                 {/* Modal Content */}
                 <div className="flex-1 overflow-hidden bg-[var(--bg-secondary)] relative">
                    {activeTab === 'BASIC' && (
                       <div className="h-full overflow-y-auto p-6">
-                         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-                               <div className="card p-5">
+                         {/* 瀑布流布局：卡片按内容高度紧凑排布，避免行网格造成的纵向空隙 */}
+                         <div className="columns-1 xl:columns-2 gap-6">
+                               <div className="card p-5 mb-6 break-inside-avoid">
                                   <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
                                     <Building className="w-4 h-4 text-[var(--primary-500)]" />
                                     基础资料
@@ -541,17 +541,6 @@ export const ClientDetailTabs: React.FC<{
                                         />
                                      </div>
                                      <div>
-                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">客户状态</label>
-                                        <select 
-                                           className="input"
-                                           value={selectedClient.status}
-                                           onChange={e => setSelectedClient({...selectedClient, status: e.target.value as ClientStatus})}
-                                           disabled={isReadOnly}
-                                        >
-                                           {Object.values(ClientStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                                        </select>
-                                     </div>
-                                     <div>
                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">负责人</label>
                                         <div className="flex items-center p-2.5 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)]">
                                             <UserIcon className="w-4 h-4 mr-2 text-[var(--text-tertiary)]" />
@@ -563,7 +552,7 @@ export const ClientDetailTabs: React.FC<{
 
                                {/* 类型专属信息 */}
                                {selectedClient.clientType && (
-                               <div className="card p-5">
+                               <div className="card p-5 mb-6 break-inside-avoid">
                                   <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
                                     <Landmark className="w-4 h-4 text-[var(--primary-500)]" />
                                     {selectedClient.clientType === '地方政府' ? '政府专属信息' : selectedClient.clientType === '金融机构' ? '金融机构专属信息' : '产业客户专属信息'}
@@ -728,7 +717,7 @@ export const ClientDetailTabs: React.FC<{
 
                                {/* 工商基础信息（企业类客户） */}
                                {selectedClient.clientType && selectedClient.clientType !== '地方政府' && (
-                               <div className="card p-5">
+                               <div className="card p-5 mb-6 break-inside-avoid">
                                   <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
                                     <Building className="w-4 h-4 text-[var(--primary-500)]" />
                                     工商基础信息
@@ -797,7 +786,7 @@ export const ClientDetailTabs: React.FC<{
                                )}
 
                                {/* 协议与落地项目（客户层） */}
-                               <div className="card p-5">
+                               <div className="card p-5 mb-6 break-inside-avoid">
                                   <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
                                     <ClipboardCheck className="w-4 h-4 text-[var(--primary-500)]" />
                                     协议与落地项目
@@ -916,7 +905,7 @@ export const ClientDetailTabs: React.FC<{
 
                                {/* Custom Fields */}
                                {fieldDefinitions.length > 0 && (
-                                  <div className="card p-5">
+                                  <div className="card p-5 mb-6 break-inside-avoid">
                                      <h4 className="text-sm font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
                                        <Filter className="w-4 h-4 text-[var(--primary-500)]" />
                                        自定义信息
@@ -1427,7 +1416,6 @@ export const ClientDetailTabs: React.FC<{
                       </div>
                    )}
                 </div>
-      </div>
     </>
   );
 };

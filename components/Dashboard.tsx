@@ -26,11 +26,10 @@ import {
   CalendarPlus,
   Loader2,
   Sparkles,
-  Target,
   Clock,
   Activity
 } from 'lucide-react';
-import { Visit, Client, ClientStatus, User, Department, Sentiment } from '../types';
+import { Visit, Client, User, Department, Sentiment } from '../types';
 
 interface DashboardProps {
   visits: Visit[];
@@ -61,12 +60,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Calculated Stats
   const totalClients = clients.length;
-  const activeClients = clients.filter(c => c.status === ClientStatus.Active).length;
-  const leads = clients.filter(c => c.status === ClientStatus.Lead).length;
-  const churned = clients.filter(c => c.status === ClientStatus.Churned).length;
+  const industryCount = new Set(clients.map(c => c.industry).filter(Boolean)).size;
+  const myClientCount = clients.filter(c => c.ownerId === currentUser.id).length;
   
   const visitsThisMonth = visits.length; // Simplified for demo
-  const conversionRate = Math.round((activeClients / (totalClients || 1)) * 100);
+  const todoCount = visits.filter(v => v.actionItems && v.actionItems.length > 0).length;
 
   // Smart Check-In Logic
   const handleSmartCheckIn = () => {
@@ -124,7 +122,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
       
       // 1. Filter data based on Current User Permissions
       const myVisits = visits.filter(v => v.ownerId === currentUser.id);
-      const myClients = clients.filter(c => c.ownerId === currentUser.id);
 
       // Rule 1: Open Action Items (Urgent)
       // Sort by date desc to see most recent tasks
@@ -164,18 +161,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   visitId: v.id
               });
           }
-      });
-
-      // Rule 3: Churn Risk (Urgent)
-      myClients.filter(c => c.status === ClientStatus.Churned).slice(0, 1).forEach(c => {
-          actions.push({
-              id: `churn_${c.id}`,
-              title: '流失挽回',
-              desc: `客户 ${c.name} 标记为流失，建议进行关怀回访。`,
-              type: 'URGENT',
-              clientName: c.name,
-              clientId: c.id
-          });
       });
 
       // Sort: Urgent first
@@ -333,7 +318,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <StatCard 
           title="客户总数" 
           value={totalClients} 
-          subtext={`+${leads} 新增线索`} 
+          subtext={`覆盖 ${industryCount} 个行业`}
           icon={Users} 
           gradient="bg-gradient-to-br from-[#1E40AF] to-[#3B82F6]" 
         />
@@ -345,18 +330,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
           gradient="bg-gradient-to-br from-[#8B5CF6] to-[#A78BFA]" 
         />
         <StatCard 
-          title="转化率" 
-          value={`${conversionRate}%`} 
-          subtext="线索转签约" 
-          icon={Target} 
+          title="待办事项" 
+          value={todoCount} 
+          subtext="来自拜访记录" 
+          icon={CheckCircle} 
           gradient="bg-gradient-to-br from-[#10B981] to-[#34D399]" 
         />
         <StatCard 
-          title="风险预警" 
-          value={churned} 
-          subtext="需要关注" 
-          icon={AlertTriangle} 
-          gradient="bg-gradient-to-br from-[#F59E0B] to-[#FBBF24]" 
+          title="我负责的客户" 
+          value={myClientCount} 
+          subtext="当前用户名下" 
+          icon={UserIcon} 
+          gradient="bg-gradient-to-br from-[#0EA5E9] to-[#38BDF8]" 
         />
       </div>
 

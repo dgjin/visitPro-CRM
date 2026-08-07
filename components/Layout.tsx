@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ViewState, User, Role, Notification } from '../types';
 import { hashPassword } from '../services/apiService';
+import { HelpCenter } from './HelpCenter';
 import { 
   LayoutDashboard, 
   Users, 
@@ -30,7 +31,9 @@ import {
   Moon,
   Sparkles,
   Command,
-  ChevronRight
+  ChevronRight,
+  HelpCircle,
+  BookOpen
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -123,6 +126,9 @@ export const Layout: React.FC<LayoutProps> = ({
   // Command Palette State
   const [isCommandOpen, setIsCommandOpen] = useState(false);
   const [commandSearch, setCommandSearch] = useState('');
+
+  // Help Center State
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   
   const userMenuRef = useRef<HTMLDivElement>(null);
   const themeMenuRef = useRef<HTMLDivElement>(null);
@@ -295,7 +301,11 @@ export const Layout: React.FC<LayoutProps> = ({
       color: t.color
     })).filter(item => item.label.toLowerCase().includes(term));
 
-    return { navs, themes };
+    const actions = [
+      { label: '打开帮助中心 (Help Center)', icon: HelpCircle },
+    ].filter(item => item.label.toLowerCase().includes(term));
+
+    return { navs, themes, actions };
   }, [commandSearch, user]);
 
   // Helper to resolve dynamic role name
@@ -645,6 +655,14 @@ export const Layout: React.FC<LayoutProps> = ({
             {/* Mobile Profile & Theme */}
              <div className="mt-auto pt-4 border-t border-[var(--gray-200)]">
                <button 
+                  onClick={() => { setIsHelpOpen(true); setIsMobileMenuOpen(false); }}
+                  className="w-full flex items-center p-3 rounded-lg hover:bg-[var(--gray-100)] text-[var(--gray-700)] transition-colors"
+               >
+                  <BookOpen className="w-5 h-5 mr-3 text-[var(--gray-400)]" />
+                  <span className="font-medium">帮助中心</span>
+               </button>
+
+               <button 
                   onClick={() => { setIsProfileModalOpen(true); setIsMobileMenuOpen(false); }}
                   className="w-full flex items-center p-3 rounded-lg hover:bg-[var(--gray-100)] text-[var(--gray-700)] transition-colors"
                >
@@ -690,6 +708,20 @@ export const Layout: React.FC<LayoutProps> = ({
                <SearchIcon className="w-4 h-4" />
                <span className="hidden lg:inline">搜索</span>
                <kbd className="hidden lg:inline-flex h-5 items-center gap-1 rounded border border-[var(--gray-300)] bg-white px-1.5 font-mono text-[10px] text-[var(--gray-500)]">⌘K</kbd>
+             </button>
+
+             {/* Help Center Button */}
+             <button
+               onClick={() => setIsHelpOpen(true)}
+               title="帮助中心"
+               className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all ${
+                 isHelpOpen
+                   ? 'bg-[var(--primary-bg)]'
+                   : 'text-[var(--gray-500)] hover:bg-[var(--gray-100)]'
+               }`}
+               style={isHelpOpen ? { color: getThemeColor() } : {}}
+             >
+               <HelpCircle className="w-[18px] h-[18px]" />
              </button>
              
              {/* Notification Bell */}
@@ -867,7 +899,30 @@ export const Layout: React.FC<LayoutProps> = ({
                     </div>
                  )}
 
-                 {filteredCommands.navs.length === 0 && filteredCommands.themes.length === 0 && (
+                 {/* Actions Group */}
+                 {filteredCommands.actions.length > 0 && (
+                    <div className="mb-1">
+                       <div className="text-[11px] font-semibold text-[var(--gray-400)] px-3 py-2 uppercase tracking-wider">快捷操作</div>
+                       {filteredCommands.actions.map(action => (
+                          <button
+                             key={action.label}
+                             onClick={() => {
+                                setIsCommandOpen(false);
+                                setIsHelpOpen(true);
+                             }}
+                             className="w-full flex items-center px-3 py-2.5 rounded-lg hover:bg-[var(--gray-100)] text-[var(--gray-700)] transition-colors group"
+                          >
+                             <div className="w-8 h-8 rounded-md bg-[var(--gray-100)] flex items-center justify-center mr-3">
+                               <action.icon className="w-4 h-4 text-[var(--gray-500)]" />
+                             </div>
+                             <span className="flex-1 text-left text-sm font-medium">{action.label}</span>
+                             <ArrowRight className="w-4 h-4 text-[var(--gray-300)] opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </button>
+                       ))}
+                    </div>
+                 )}
+
+                 {filteredCommands.navs.length === 0 && filteredCommands.themes.length === 0 && filteredCommands.actions.length === 0 && (
                     <div className="py-10 text-center text-[var(--gray-400)]">
                        <SearchIcon className="w-10 h-10 mx-auto mb-3 opacity-30" />
                        <p className="text-sm">未找到相关指令</p>
@@ -882,7 +937,7 @@ export const Layout: React.FC<LayoutProps> = ({
                   <span className="flex items-center"><kbd className="font-mono bg-white border border-[var(--gray-200)] rounded px-1 mr-1">↑↓</kbd> 选择</span>
                   <span className="flex items-center"><kbd className="font-mono bg-white border border-[var(--gray-200)] rounded px-1 mr-1">↵</kbd> 确认</span>
                 </div>
-                <span>{filteredCommands.navs.length + filteredCommands.themes.length} 个结果</span>
+                <span>{filteredCommands.navs.length + filteredCommands.themes.length + filteredCommands.actions.length} 个结果</span>
               </div>
            </div>
         </div>
@@ -1185,6 +1240,9 @@ export const Layout: React.FC<LayoutProps> = ({
               </div>
           </div>
       )}
+
+      {/* Help Center Drawer */}
+      <HelpCenter isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} currentView={currentView} />
     </div>
   );
 };

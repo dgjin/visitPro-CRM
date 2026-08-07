@@ -5,6 +5,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import CopyButton from './CopyButton';
 import { IflytekStreamingSession, downsampleBuffer, IflytekError } from '../services/iflytekService';
 import { upsertVisit, deleteVisit } from '../services/apiService';
+import { parseAttachment } from '../services/attachmentParser';
 import { 
   Calendar, 
   Mic, 
@@ -38,6 +39,7 @@ import {
   FileText,
   Upload,
   FileAudio,
+  Paperclip,
   BrainCircuit,
   Plus,
   Clock,
@@ -100,7 +102,9 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   const [currentAudioDuration, setCurrentAudioDuration] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const [transcribingId, setTranscribingId] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
   
   // Refs for cleanup
   const streamRef = useRef<MediaStream | null>(null);
@@ -324,6 +328,35 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       } catch (e) {
           console.error("File upload failed", e);
           alert("文件读取失败");
+      }
+  };
+
+  // 附件上传：解析 txt/Word/WPS/PDF 文本并自动填入笔记
+  const handleAttachmentUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file || isReadOnly || isExtracting) return;
+
+      setIsExtracting(true);
+      try {
+          const { text, truncated } = await parseAttachment(file);
+          const escaped = text
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+          const paragraphs = escaped.split('\n')
+              .map(l => l.trim())
+              .filter(Boolean)
+              .map(l => `<p>${l}</p>`)
+              .join('');
+          const suffix = truncated ? '（内容过长，仅截取开头部分）' : '';
+          const newContent = (currentVisit.content || '') +
+              `<p><b>[附件：${file.name} ${new Date().toLocaleTimeString()}]${suffix}</b></p>${paragraphs}`;
+          setCurrentVisit(prev => ({ ...prev, content: newContent }));
+      } catch (e: any) {
+          alert(`附件识别失败：${e.message || '未知错误'}`);
+      } finally {
+          setIsExtracting(false);
       }
   };
 
@@ -1584,6 +1617,39 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                   ref={fileInputRef} 
                   style={{ display: 'none' }} 
                   onChange={handleFileUpload}
+                />
+                
+                <div style={{ width: '1px', height: '20px', background: 'var(--border)', margin: '0 4px' }} />
+                
+                {/* Attachment Upload Button */}
+                <button 
+                  onClick={() => attachInputRef.current?.click()}
+                  style={{ 
+                    padding: '8px 12px', 
+                    borderRadius: 'var(--radius-sm)', 
+                    color: 'var(--text-secondary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '13px',
+                    opacity: isReadOnly || isExtracting ? 0.5 : 1,
+                    cursor: isReadOnly || isExtracting ? 'not-allowed' : 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  className={!isReadOnly && !isExtracting ? 'btn-ghost' : ''}
+                  title="上传附件（txt/Word/WPS/PDF），自动识别内容填入笔记"
+                  type="button"
+                  disabled={isReadOnly || isExtracting}
+                >
+                  {isExtracting ? <Loader2 className="w-4 h-4 animate-spin"/> : <Paperclip className="w-4 h-4"/>}
+                  <span>{isExtracting ? '识别中...' : '上传附件'}</span>
+                </button>
+                <input 
+                  type="file" 
+                  accept=".txt,.md,.csv,.log,.doc,.docx,.wps,.pdf" 
+                  ref={attachInputRef} 
+                  style={{ display: 'none' }} 
+                  onChange={handleAttachmentUpload}
                 />
                 
                 <div style={{ width: '1px', height: '20px', background: 'var(--border)', margin: '0 4px' }} />

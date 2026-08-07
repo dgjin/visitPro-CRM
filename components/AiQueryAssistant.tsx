@@ -3,8 +3,13 @@ import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
-import { Sparkles, Send, Loader2, AlertCircle, BarChart3, Table2, ChevronDown } from 'lucide-react';
-import { aiQueryStream, getAiConfig, AiChart, AiTable, AiPlan } from '../services/apiService';
+import { Sparkles, Send, Loader2, AlertCircle, BarChart3, Table2, ChevronDown, FileSpreadsheet, Landmark, Building2, Factory } from 'lucide-react';
+import { aiQueryStream, getAiConfig, fetchClients, fetchVisits, AiChart, AiTable, AiPlan } from '../services/apiService';
+import { Client } from '../types';
+import {
+  CLIENT_LIST_TEMPLATES, ClientListTemplate, VisitContext,
+  filterClientsByTemplate, buildVisitContextMap, exportTemplateToExcel,
+} from '../services/clientListTemplates';
 
 // ==========================================
 // 智能问数：自然语言提问 → 后端解析为白名单查询计划 → 图表/表格 + 流式结论
@@ -15,21 +20,29 @@ import { aiQueryStream, getAiConfig, AiChart, AiTable, AiPlan } from '../service
 const SERIES_COLORS = ['#3B6E8F', '#7A9E7E', '#C08A5A', '#8E7CA8', '#B4676A', '#5E8C8A'];
 
 const SUGGESTED_QUESTIONS = [
+  '详细统计分析一下当前客户的具体情况',
   '各行业的客户数量分布',
   '各地区的客户占比情况',
   '目前一共有多少客户',
-  '各客户状态的分布如何',
 ];
+
+/** 固定模板卡片图标：与客户类型一一对应 */
+const TEMPLATE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  gov: Landmark,
+  fin: Building2,
+  ent: Factory,
+};
 
 interface AiMessage {
   role: 'user' | 'assistant';
   content?: string;        // 用户问题或纯文本回答
   status?: string;         // 进行中的状态提示
-  plan?: AiPlan;
-  chart?: AiChart;
-  table?: AiTable;
+  plans?: AiPlan[];                    // 复合计划时为多个子分析
+  charts?: Record<number, AiChart>;    // 按子分析 index 存放
+  tables?: Record<number, AiTable>;    // 按子分析 index 存放
   answer?: string;         // 流式累积的结论
   scopeNote?: string;
+  template?: { config: ClientListTemplate; clients: Client[]; visitCtx?: Map<string, VisitContext> }; // 固定模板清单结果
   error?: boolean;
   done?: boolean;
 }
@@ -143,7 +156,7 @@ const TableBlock = React.memo(({ table }: { table: AiTable }) => {
 /** 计划摘要：展示本次问数解析出的查询口径 */
 const PlanChip: React.FC<{ plan: AiPlan }> = ({ plan }) => {
   const DIMENSION_LABELS: Record<string, string> = {
-    industry: '按行业', region: '按地区', status: '按状态', clientType: '按客户类型',
+    industry: '按行业', region: '按地区', clientType: '按客户类型',
     owner: '按负责人', type: '按拜访类型', sentiment: '按拜访氛围', month: '按月份', none: '仅统计总数',
   };
   const parts = [
@@ -158,6 +171,57 @@ const PlanChip: React.FC<{ plan: AiPlan }> = ({ plan }) => {
       {parts.map((p, i) => (
         <span key={i} className="px-2 py-0.5 rounded-full bg-[var(--gray-100)] border border-[var(--gray-200)]">{p}</span>
       ))}
+    </div>
+  );
+};
+
+/** 固定模板清单：按客户类别展示详细信息表格，并支持导出 Excel */
+const TemplateBlock: React.FC<{ config: ClientListTemplate; clients: Client[]; visitCtx?: Map<string, VisitContext> }> = ({ config, clients, visitCtx }) => {
+  if (clients.length === 0) {
+    return (
+      <div className="text-xs text-[var(--gray-400)] p-3 rounded-lg bg-[var(--gray-50)] border border-[var(--gray-100)]">
+        当前数据范围内暂无「{config.clientType}」类别的客户。
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-[var(--gray-200)] overflow-hidden">
+      <div className="flex items-center justify-between px-3.5 py-2.5 bg-[var(--gray-50)] border-b border-[var(--gray-200)]">
+        <span className="text-xs font-semibold text-[var(--gray-600)] flex items-center gap-1.5">
+          <Table2 className="w-3.5 h-3.5 text-[var(--gray-400)]" />
+          {config.title}（{clients.length} 家）
+        </span>
+        <button
+          onClick={() => exportTemplateToExcel(clients, config, visitCtx)}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-white transition-opacity hover:opacity-85"
+          style={{ backgroundColor: 'var(--primary)' }}
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5" />
+          导出 Excel
+        </button>
+      </div>
+      <div className="overflow-x-auto max-h-96 overflow-y-auto bg-white">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0">
+            <tr className="bg-[var(--gray-50)] text-[var(--gray-500)] text-[11px] font-semibold">
+              {config.columns.map((col, i) => (
+                <th key={i} className="p-2.5 text-left whitespace-nowrap">{col.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {clients.map((c, rIdx) => (
+              <tr key={c.id || rIdx} className="border-t border-[var(--gray-100)] hover:bg-[var(--gray-50)]">
+                {config.columns.map((col, cIdx) => (
+                  <td key={cIdx} className={`p-2.5 whitespace-nowrap ${cIdx === 0 ? 'font-semibold' : 'text-[var(--gray-600)]'}`}>
+                    {col.get(c, visitCtx?.get(c.id))}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };
@@ -219,13 +283,24 @@ export const AiQueryAssistant: React.FC = () => {
             break;
           }
           case 'plan':
-            try { updateLastAssistant({ plan: JSON.parse(data), status: undefined }); } catch { /* ignore */ }
+            try {
+              const p = JSON.parse(data) as AiPlan;
+              updateLastAssistant(m => ({ plans: [...(m.plans || []), p], status: undefined }));
+            } catch { /* ignore */ }
             break;
           case 'chart':
-            try { updateLastAssistant({ chart: JSON.parse(data) }); } catch { /* ignore */ }
+            try {
+              const c = JSON.parse(data) as AiChart;
+              const idx = typeof c.index === 'number' ? c.index : 0;
+              updateLastAssistant(m => ({ charts: { ...(m.charts || {}), [idx]: c } }));
+            } catch { /* ignore */ }
             break;
           case 'table':
-            try { updateLastAssistant({ table: JSON.parse(data) }); } catch { /* ignore */ }
+            try {
+              const t = JSON.parse(data) as AiTable;
+              const idx = typeof t.index === 'number' ? t.index : 0;
+              updateLastAssistant(m => ({ tables: { ...(m.tables || {}), [idx]: t } }));
+            } catch { /* ignore */ }
             break;
           case 'answer_delta':
             updateLastAssistant(m => ({ answer: (m.answer || '') + data, status: undefined }));
@@ -244,6 +319,34 @@ export const AiQueryAssistant: React.FC = () => {
       });
     } catch (e: any) {
       updateLastAssistant({ content: e.message || '问数请求失败，请稍后重试', error: true, status: undefined, done: true });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** 固定模板：按客户类别生成详细信息清单（不走 AI 解析，直接本地取数） */
+  const handleTemplate = async (config: ClientListTemplate) => {
+    if (loading) return;
+    setMessages(prev => [
+      ...prev,
+      { role: 'user', content: `生成${config.title}` },
+      { role: 'assistant', status: '正在读取客户数据...' },
+    ]);
+    setLoading(true);
+    try {
+      // 客户与拜访并行取数；客户取数失败由下方 catch 展示错误，拜访失败降级为无拜访信息
+      const [clients, visits] = await Promise.all([fetchClients(), fetchVisits().catch(() => null)]);
+      const matched = filterClientsByTemplate(clients, config);
+      const visitCtx = visits ? buildVisitContextMap(visits) : undefined;
+      updateLastAssistant(m => ({
+        template: { config, clients: matched, visitCtx },
+        answer: `已按「${config.clientType}」类别生成客户详细信息清单，共 ${matched.length} 家客户（含最近拜访人与拜访时间）。可点击右上角"导出 Excel"下载完整清单。`,
+        scopeNote: '数据来源为当前登录用户可见的客户范围，未设置客户类型的客户不计入本清单。',
+        status: undefined,
+        done: true,
+      }));
+    } catch (e: any) {
+      updateLastAssistant({ content: e.message || '清单生成失败，请稍后重试', error: true, status: undefined, done: true });
     } finally {
       setLoading(false);
     }
@@ -285,6 +388,27 @@ export const AiQueryAssistant: React.FC = () => {
                 </button>
               ))}
             </div>
+
+            {/* 固定模板：按客户类别生成详细信息清单 */}
+            <div className="mt-8 max-w-2xl mx-auto">
+              <p className="text-xs font-semibold text-[var(--gray-400)] uppercase tracking-wider mb-3">客户类别清单模板</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {CLIENT_LIST_TEMPLATES.map(t => {
+                  const Icon = TEMPLATE_ICONS[t.id] || Table2;
+                  return (
+                    <button key={t.id} onClick={() => handleTemplate(t)} disabled={loading}
+                      className="text-left p-4 rounded-xl border border-[var(--gray-200)] bg-white hover:border-[var(--gray-300)] hover:shadow-sm transition-all disabled:opacity-50">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-2.5"
+                        style={{ backgroundColor: 'var(--primary-bg)' }}>
+                        <Icon className="w-4 h-4" style={{ color: 'var(--primary)' }} />
+                      </div>
+                      <p className="text-sm font-semibold text-[var(--gray-800)] mb-1">{t.title}</p>
+                      <p className="text-[11px] text-[var(--gray-500)] leading-relaxed">{t.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
@@ -309,14 +433,26 @@ export const AiQueryAssistant: React.FC = () => {
                   </div>
                 )}
                 {msg.error && <AlertCircle className="w-4 h-4 text-red-500" />}
-                {msg.plan && <PlanChip plan={msg.plan} />}
-                {(msg.chart || msg.table) && msg.chart && (
-                  <div>
-                    <p className="text-sm font-semibold mb-2">{msg.chart.title}</p>
-                    <ChartBlock chart={msg.chart} />
-                  </div>
-                )}
-                {msg.table && <TableBlock table={msg.table} />}
+                {/* 复合计划：每个子分析一组 计划标签 + 图表 + 明细表 */}
+                {msg.plans && msg.plans.map((p, i) => {
+                  const idx = typeof p.index === 'number' ? p.index : i;
+                  const chart = msg.charts?.[idx];
+                  const table = msg.tables?.[idx];
+                  return (
+                    <div key={idx} className="space-y-2">
+                      <PlanChip plan={p} />
+                      {chart && (
+                        <div>
+                          <p className="text-sm font-semibold mb-2">{chart.title}</p>
+                          <ChartBlock chart={chart} />
+                        </div>
+                      )}
+                      {table && <TableBlock table={table} />}
+                    </div>
+                  );
+                })}
+                {/* 固定模板清单结果 */}
+                {msg.template && <TemplateBlock config={msg.template.config} clients={msg.template.clients} visitCtx={msg.template.visitCtx} />}
                 {(msg.answer || msg.content) && (
                   <div className="text-sm leading-relaxed whitespace-pre-wrap">
                     {msg.answer || msg.content}
@@ -334,6 +470,21 @@ export const AiQueryAssistant: React.FC = () => {
 
       {/* 输入区 */}
       <div className="p-4 border-t border-[var(--gray-200)] bg-white">
+        {/* 固定模板快捷入口 */}
+        <div className="flex items-center justify-center gap-2 flex-wrap mb-3">
+          <span className="text-[11px] text-[var(--gray-400)]">清单模板：</span>
+          {CLIENT_LIST_TEMPLATES.map(t => {
+            const Icon = TEMPLATE_ICONS[t.id] || Table2;
+            return (
+              <button key={t.id} onClick={() => handleTemplate(t)} disabled={loading}
+                title={t.description}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-full border border-[var(--gray-200)] bg-white hover:border-[var(--gray-300)] hover:bg-[var(--gray-50)] transition-colors text-[var(--gray-600)] disabled:opacity-50">
+                <Icon className="w-3 h-3" style={{ color: 'var(--primary)' }} />
+                {t.title}
+              </button>
+            );
+          })}
+        </div>
         <form
           onSubmit={e => { e.preventDefault(); handleAsk(input); }}
           className="flex items-center gap-2 max-w-3xl mx-auto"

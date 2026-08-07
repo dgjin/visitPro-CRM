@@ -47,21 +47,6 @@ interface ClientManagerProps {
   onResetTrigger?: () => void;
 }
 
-const getStatusBadgeClass = (status: ClientStatus) => {
-  switch (status) {
-    case ClientStatus.Active:
-      return 'badge-success';
-    case ClientStatus.Lead:
-      return 'badge-info';
-    case ClientStatus.Churned:
-      return 'badge-danger';
-    case ClientStatus.Onboarding:
-      return 'badge-warning';
-    default:
-      return 'badge-info';
-  }
-};
-
 export const ClientManager: React.FC<ClientManagerProps> = ({ 
   clients, 
   setClients, 
@@ -151,22 +136,11 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       }
   };
 
-  const handleBatchStatus = (status: ClientStatus) => {
-      setClients(prev => prev.map(c => {
-          if (selectedIds.has(c.id)) {
-              upsertClient({ ...c, status });
-              return { ...c, status };
-          }
-          return c;
-      }));
-      setSelectedIds(new Set());
-  };
-
   const handleBatchExport = () => {
       const selectedData = clients.filter(c => selectedIds.has(c.id));
-      const csvHeader = 'ID,Name,Type,Industry,Status,Region,Owner\n';
+      const csvHeader = 'ID,Name,Type,Industry,Region,Owner\n';
       const csvRows = selectedData.map(c => 
-          `${c.id},"${c.name}",${c.clientType || ''},${c.industry},${c.status},"${c.region}",${c.ownerName}`
+          `${c.id},"${c.name}",${c.clientType || ''},${c.industry},"${c.region}",${c.ownerName}`
       ).join('\n');
       
       const blob = new Blob([csvHeader + csvRows], { type: 'text/csv;charset=utf-8;' });
@@ -337,7 +311,6 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                       <th>客户类型</th>
                       <th>行业/地区</th>
                       <th>主要联系人</th>
-                      <th>状态</th>
                       <th>负责人</th>
                       <th className="text-right">操作</th>
                    </tr>
@@ -394,11 +367,6 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                                )}
                             </td>
                             <td>
-                               <span className={`badge ${getStatusBadgeClass(client.status)}`}>
-                                  {client.status}
-                               </span>
-                            </td>
-                            <td>
                                <div className="flex items-center text-xs text-[var(--text-secondary)]">
                                   <UserIcon className="w-3 h-3 mr-1.5 text-[var(--text-tertiary)]"/>
                                   {client.ownerName || 'Unknown'}
@@ -420,7 +388,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                    })}
                    {paginatedClients.length === 0 && (
                       <tr>
-                         <td colSpan={8} className="py-16 text-center">
+                         <td colSpan={7} className="py-16 text-center">
                             <div className="flex flex-col items-center justify-center text-[var(--text-tertiary)]">
                                <Users className="w-12 h-12 mb-3 opacity-20" />
                                <p className="text-sm">未找到相关客户</p>
@@ -467,11 +435,6 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
                <span className="text-sm font-medium pr-4 border-r border-white/20">
                   <span className="text-[var(--primary-400)] font-bold text-lg">{selectedIds.size}</span> 个已选中
                </span>
-               
-               <button onClick={() => handleBatchStatus(ClientStatus.Active)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-sm">
-                   <CheckSquare className="w-4 h-4 text-[var(--success)]" />
-                   <span>设为已签约</span>
-               </button>
                
                <button onClick={handleBatchExport} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-sm">
                    <Download className="w-4 h-4 text-[var(--primary-400)]" />
