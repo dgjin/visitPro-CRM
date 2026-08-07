@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { Sparkles, Send, Loader2, AlertCircle, BarChart3, Table2, ChevronDown, FileSpreadsheet, Landmark, Building2, Factory, Maximize2, X } from 'lucide-react';
 import { aiQueryStream, getAiConfig, fetchClients, fetchVisits, AiChart, AiTable, AiPlan } from '../services/apiService';
-import { Client } from '../types';
+import { Client, User, Department } from '../types';
 import {
   CLIENT_LIST_TEMPLATES, ClientListTemplate, VisitContext,
   filterClientsByTemplate, buildVisitContextMap, exportTemplateToExcel,
@@ -16,6 +16,9 @@ import {
 // 智能问数：自然语言提问 → 后端解析为白名单查询计划 → 图表/表格 + 流式结论
 // 交互与事件协议参照 free-report 的 AiQuery 页面（SSE：status/plan/chart/table/answer_delta/scope_note）
 // ==========================================
+
+/** 清单模板准入：管理员或总经理室与风险管理部成员可用 */
+const TEMPLATE_DEPARTMENTS = ['总经理室', '风险管理部'];
 
 /** 图表配色：低饱和色板，多系列可辨识且不刺眼 */
 const SERIES_COLORS = ['#3B6E8F', '#7A9E7E', '#C08A5A', '#8E7CA8', '#B4676A', '#5E8C8A'];
@@ -285,12 +288,19 @@ const TemplateBlock: React.FC<{ config: ClientListTemplate; clients: Client[]; v
   );
 };
 
-export const AiQueryAssistant: React.FC = () => {
+export const AiQueryAssistant: React.FC<{ currentUser?: User; departments?: Department[] }> = ({ currentUser, departments }) => {
   const [enabled, setEnabled] = useState<boolean | null>(null); // null=检测中
   const [messages, setMessages] = useState<AiMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 清单模板准入：管理员放行，其余按当前用户所属部门名称判断
+  const canUseTemplates = useMemo(() => {
+    if (currentUser?.role === '管理员') return true;
+    const dept = departments?.find(d => d.id === currentUser?.departmentId);
+    return !!dept && TEMPLATE_DEPARTMENTS.includes(dept.name);
+  }, [currentUser?.departmentId, currentUser?.role, departments]);
 
   useEffect(() => {
     getAiConfig().then(cfg => setEnabled(cfg.enabled));
@@ -383,9 +393,9 @@ export const AiQueryAssistant: React.FC = () => {
     }
   };
 
-  /** 固定模板：按客户类别生成详细信息清单（不走 AI 解析，直接本地取数） */
+  /** 固定模板：按客户类别生成详细信息清单（不走 AI 解析，直接本地取数）；仅准入部门可用 */
   const handleTemplate = async (config: ClientListTemplate) => {
-    if (loading) return;
+    if (loading || !canUseTemplates) return;
     setMessages(prev => [
       ...prev,
       { role: 'user', content: `生成${config.title}` },
@@ -452,7 +462,8 @@ export const AiQueryAssistant: React.FC = () => {
               ))}
             </div>
 
-            {/* 固定模板：按客户类别生成详细信息清单 */}
+            {/* 固定模板：按客户类别生成详细信息清单（仅总经理室与风险管理部可见） */}
+            {canUseTemplates && (
             <div className="mt-8 max-w-2xl mx-auto">
               <p className="text-xs font-semibold text-[var(--gray-400)] uppercase tracking-wider mb-3">客户类别清单模板</p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -472,6 +483,7 @@ export const AiQueryAssistant: React.FC = () => {
                 })}
               </div>
             </div>
+            )}
           </div>
         )}
 
@@ -533,7 +545,8 @@ export const AiQueryAssistant: React.FC = () => {
 
       {/* 输入区 */}
       <div className="p-4 border-t border-[var(--gray-200)] bg-white">
-        {/* 固定模板快捷入口 */}
+        {/* 固定模板快捷入口（仅总经理室与风险管理部可见） */}
+        {canUseTemplates && (
         <div className="flex items-center justify-center gap-2 flex-wrap mb-3">
           <span className="text-[11px] text-[var(--gray-400)]">清单模板：</span>
           {CLIENT_LIST_TEMPLATES.map(t => {
@@ -548,6 +561,7 @@ export const AiQueryAssistant: React.FC = () => {
             );
           })}
         </div>
+        )}
         <form
           onSubmit={e => { e.preventDefault(); handleAsk(input); }}
           className="flex items-center gap-2 max-w-3xl mx-auto"

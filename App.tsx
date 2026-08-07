@@ -400,7 +400,7 @@ const App: React.FC = () => {
                 />
               )}
               {currentView === 'AI_QUERY' && (
-                <AiQueryAssistant />
+                <AiQueryAssistant currentUser={currentUser} departments={departments} />
               )}
               {currentView === 'USERS' && (
                 <UserManager 
