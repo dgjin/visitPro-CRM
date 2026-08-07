@@ -49,7 +49,7 @@ const blobToWavBlob = async (blob: Blob): Promise<Blob> => {
     const targetRate = 16000;
     const sourceData = audioBuffer.getChannelData(0);
 
-    // 重采样到 16kHz（均值降采样，与讯飞链路保持一致）
+    // 重采样到 16kHz（均值降采样）
     let pcm: Int16Array;
     if (audioBuffer.sampleRate === targetRate) {
       pcm = new Int16Array(sourceData.length);
@@ -115,7 +115,11 @@ export const transcribeAudioWithLocalAsr = async (
 ): Promise<string> => {
   const sourceBlob = base64ToBlob(base64Data, mimeType);
   const wavBlob = await blobToWavBlob(sourceBlob);
+  return transcribeWavBlob(wavBlob);
+};
 
+/** 提交 WAV Blob 到本地 FunASR 服务并返回识别文本 */
+const transcribeWavBlob = async (wavBlob: Blob): Promise<string> => {
   const formData = new FormData();
   formData.append('file', wavBlob, 'audio.wav');
 
@@ -138,3 +142,145 @@ export const transcribeAudioWithLocalAsr = async (
   const data = await res.json();
   return (data.text || '').trim();
 };
+
+/**
+ * 将 44.1/48kHz Float32 音频降采样为 16kHz PCM（Int16），供实时转写使用
+ */
+export const downsampleBuffer = (buffer: Float32Array, inputSampleRate: number): Int16Array => {
+  const outputSampleRate = 16000;
+
+  if (inputSampleRate === outputSampleRate) {
+    const out = new Int16Array(buffer.length);
+    for (let i = 0; i < buffer.length; i++) {
+      const s = Math.max(-1, Math.min(1, buffer[i]));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return out;
+  }
+
+  const ratio = inputSampleRate / outputSampleRate;
+  const newLength = Math.round(buffer.length / ratio);
+  const result = new Int16Array(newLength);
+  let offsetResult = 0;
+  let offsetBuffer = 0;
+
+  while (offsetResult < result.length) {
+    const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+    let accum = 0, count = 0;
+    for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+      accum += buffer[i];
+      count++;
+    }
+    const s = Math.max(-1, Math.min(1, count > 0 ? accum / count : 0));
+    result[offsetResult] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    offsetResult++;
+    offsetBuffer = nextOffsetBuffer;
+  }
+
+  return result;
+};
+
+/** 将 16kHz 单声道 PCM 拼装为 WAV Blob（44 字节头 + PCM 数据） */
+const pcmToWavBlob = (pcm: Int16Array): Blob => {
+  const dataSize = pcm.length * 2;
+  const header = new DataView(new ArrayBuffer(44));
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) header.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeStr(0, 'RIFF');
+  header.setUint32(4, 36 + dataSize, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  header.setUint32(16, 16, true);
+  header.setUint16(20, 1, true); // PCM
+  header.setUint16(22, 1, true); // mono
+  header.setUint32(24, 16000, true);
+  header.setUint32(28, 32000, true);
+  header.setUint16(32, 2, true);
+  header.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  header.setUint32(40, dataSize, true);
+  return new Blob([header.buffer, pcm.buffer], { type: 'audio/wav' });
+};
+
+/**
+ * 本地 FunASR 实时转写会话。
+ * 本地服务仅支持整段识别，这里按约 SEGMENT_SECONDS 秒分段提交，
+ * 串行队列保证文本按说话顺序追加，接口与原流式会话保持一致。
+ */
+const SEGMENT_SAMPLES = 16000 * 5; // 5 秒一段（16kHz）
+
+export class LocalStreamingSession {
+  private buffer: Int16Array[] = [];
+  private bufferedSamples = 0;
+  private chain: Promise<void> = Promise.resolve();
+  private stopped = false;
+
+  private onTextCallback: (text: string, isFinal: boolean) => void;
+  private onErrorCallback: (err: Error) => void;
+  private onConnectCallback?: () => void;
+
+  constructor(
+    onText: (text: string, isFinal: boolean) => void,
+    onError: (err: Error) => void,
+    onConnect?: () => void
+  ) {
+    this.onTextCallback = onText;
+    this.onErrorCallback = onError;
+    this.onConnectCallback = onConnect;
+  }
+
+  /** 健康检查通过后视为连接成功；服务不可用时返回 false */
+  async start(): Promise<boolean> {
+    const ok = await isLocalAsrAvailable(3000);
+    if (!ok) return false;
+    if (this.onConnectCallback) this.onConnectCallback();
+    return true;
+  }
+
+  /** 送入 16kHz PCM 数据，攒满一段后异步转写 */
+  send(pcmData: Int16Array) {
+    if (this.stopped) return;
+    this.buffer.push(pcmData);
+    this.bufferedSamples += pcmData.length;
+    if (this.bufferedSamples >= SEGMENT_SAMPLES) {
+      this.flush(false);
+    }
+  }
+
+  /** 结束会话：转写剩余缓冲并回调最终结果 */
+  stop() {
+    this.stopped = true;
+    this.flush(true);
+  }
+
+  private flush(isFinal: boolean) {
+    if (this.bufferedSamples === 0) {
+      if (isFinal) {
+        this.chain = this.chain.then(() => {
+          this.onTextCallback('', true);
+        });
+      }
+      return;
+    }
+    const merged = new Int16Array(this.bufferedSamples);
+    let offset = 0;
+    for (const chunk of this.buffer) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+    this.buffer = [];
+    this.bufferedSamples = 0;
+
+    this.chain = this.chain.then(async () => {
+      try {
+        const text = await transcribeWavBlob(pcmToWavBlob(merged));
+        if (text) this.onTextCallback(text, false);
+      } catch (e: any) {
+        this.onErrorCallback(e instanceof Error ? e : new Error(String(e)));
+      } finally {
+        if (isFinal) this.onTextCallback('', true);
+      }
+    });
+  }
+}

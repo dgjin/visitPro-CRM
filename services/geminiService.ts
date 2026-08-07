@@ -1,5 +1,5 @@
 import { Type } from "@google/genai";
-import { generateSparkContent, transcribeAudioWithIflytek } from "./iflytekService";
+import { generateSparkContent } from "./iflytekService";
 import { isLocalAsrAvailable, transcribeAudioWithLocalAsr } from "./localAsrService";
 import {
   getAIConfig,
@@ -27,29 +27,20 @@ export {
 
 /**
  * Transcribes audio data to text.
- * 默认使用本地 FunASR 服务（local-asr），不可用或失败时回退到科大讯飞云端。
+ * 统一使用本地 FunASR 服务（local-asr，SenseVoiceSmall 模型），不依赖云端。
  * @param base64Data Base64 encoded audio string (with or without data:audio/xxx;base64, prefix)
  * @param mimeType The mime type of the audio (e.g., 'audio/mp3', 'audio/webm')
  */
 export const transcribeAudio = async (base64Data: string, mimeType: string = 'audio/webm') => {
-  // 优先使用本地 FunASR 服务
-  if (await isLocalAsrAvailable()) {
-    try {
-      const result = await transcribeAudioWithLocalAsr(base64Data, mimeType);
-      if (result) return result;
-      console.warn("本地语音识别未返回结果，回退到云端");
-    } catch (error) {
-      console.warn("本地语音识别失败，回退到云端:", error);
-    }
+  if (!(await isLocalAsrAvailable())) {
+    throw new Error("语音转写失败：本地 FunASR 服务不可用，请确认 local-asr 服务已启动（默认端口 8321）。");
   }
-
   try {
-      // Fallback: iFlytek cloud transcription
-      const result = await transcribeAudioWithIflytek(base64Data);
+      const result = await transcribeAudioWithLocalAsr(base64Data, mimeType);
       return result || "";
   } catch (error: any) {
       console.error("Transcribe Audio Error:", error);
-      throw new Error(error.message || "语音转写失败：本地 ASR 服务不可用且科大讯飞配置有误。");
+      throw new Error(error.message || "语音转写失败：本地 FunASR 服务异常。");
   }
 };
 

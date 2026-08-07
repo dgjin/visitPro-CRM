@@ -3,7 +3,7 @@ import { Visit, Client, Sentiment, CustomFieldDefinition, User, VisitRecording, 
 import { analyzeVisitNote, generateFollowUpEmail, transcribeAudio, organizeVoiceTranscript } from '../services/geminiService';
 import MarkdownRenderer from './MarkdownRenderer';
 import CopyButton from './CopyButton';
-import { IflytekStreamingSession, downsampleBuffer, IflytekError } from '../services/iflytekService';
+import { LocalStreamingSession, downsampleBuffer } from '../services/localAsrService';
 import { upsertVisit, deleteVisit } from '../services/apiService';
 import { parseAttachment } from '../services/attachmentParser';
 import { 
@@ -114,7 +114,8 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
   const audioContextRef = useRef<AudioContext | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const iflytekSessionRef = useRef<IflytekStreamingSession | null>(null);
+  const asrSessionRef = useRef<LocalStreamingSession | null>(null);
+  const abortRecordingRef = useRef(false);
   
   // Editor Ref
   const editorRef = useRef<HTMLDivElement>(null);
@@ -396,6 +397,10 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       };
 
       mediaRecorder.onstop = async () => {
+        if (abortRecordingRef.current) {
+          abortRecordingRef.current = false;
+          return;
+        }
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const base64Audio = await blobToBase64(audioBlob);
         
@@ -431,45 +436,43 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
 
       setRecordingState('connecting');
 
-      const initSession = () => {
-        const session = new IflytekStreamingSession(
-          (text, isFinal) => {
-             setCurrentVisit(prev => {
-                const prevContent = prev.content || '';
-                return {
-                    ...prev,
-                    content: prevContent + text
-                };
-             });
-          },
-          (err) => {
-             console.error("Stream Error", err);
-          },
-          () => setRecordingState('recording'),
-          () => {
-             if (isRecordingRef.current) {
-                setRecordingState('connecting');
-                setTimeout(() => {
-                   if (isRecordingRef.current) {
-                      iflytekSessionRef.current = initSession();
-                   }
-                }, 100);
-             }
-          }
-        );
-        session.start();
-        return session;
-      };
+      // 本地 FunASR 实时转写：按段识别并追加到笔记
+      const session = new LocalStreamingSession(
+        (text) => {
+          if (!text) return;
+          setCurrentVisit(prev => ({
+            ...prev,
+            content: (prev.content || '') + text
+          }));
+        },
+        (err) => {
+          console.error("Local ASR Error", err);
+        },
+        () => setRecordingState('recording')
+      );
+      asrSessionRef.current = session;
 
-      iflytekSessionRef.current = initSession();
+      const asrReady = await session.start();
+      if (!asrReady) {
+        asrSessionRef.current = null;
+        abortRecordingRef.current = true;
+        mediaRecorder.stop();
+        processor.disconnect();
+        source.disconnect();
+        audioCtx.close();
+        stream.getTracks().forEach(track => track.stop());
+        setRecordingState('idle');
+        alert("本地语音识别服务不可用，请确认 FunASR 服务已启动（默认端口 8321）后再录音。");
+        return;
+      }
 
       processor.onaudioprocess = (e) => {
         const inputData = e.inputBuffer.getChannelData(0); 
         const dataClone = new Float32Array(inputData);
         const pcmData = downsampleBuffer(dataClone, audioCtx.sampleRate);
         
-        if (iflytekSessionRef.current) {
-            iflytekSessionRef.current.send(pcmData);
+        if (asrSessionRef.current) {
+            asrSessionRef.current.send(pcmData);
         }
       };
 
@@ -516,9 +519,9 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
       streamRef.current = null;
     }
     
-    if (iflytekSessionRef.current) {
-        iflytekSessionRef.current.stop();
-        iflytekSessionRef.current = null;
+    if (asrSessionRef.current) {
+        asrSessionRef.current.stop();
+        asrSessionRef.current = null;
     }
 
     if (timerRef.current) {
@@ -530,13 +533,13 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     
     // Auto-organize voice transcript after recording stops
     if (autoOrganizeEnabled && !isReadOnly) {
-      // Wait a moment for the final transcription to be inserted
+      // 等待本地分段转写的最后一段文本插入后再整理
       setTimeout(async () => {
         const currentContent = editorRef.current?.innerText || currentVisit.content || '';
         if (currentContent && currentContent.length > 50) { // Only organize if there's substantial content
           await handleOrganizeVoiceTranscript();
         }
-      }, 1000);
+      }, 3000);
     }
   };
 
@@ -1346,7 +1349,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                         }}
                       >
                         {transcribingId === rec.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                        {transcribingId === rec.id ? '科大讯飞转写中...' : '转写为文字 (科大讯飞)'}
+                        {transcribingId === rec.id ? '语音转写中...' : '转写为文字'}
                       </button>
                     )}
                   </div>
@@ -1395,7 +1398,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                   }}>
                     {recordingState === 'connecting' ? (
                       <span style={{ color: '#92400E', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Wifi className="w-3.5 h-3.5 animate-pulse" /> 连接科大讯飞云端中...
+                        <Wifi className="w-3.5 h-3.5 animate-pulse" /> 正在连接本地语音识别服务...
                       </span>
                     ) : (
                       <span style={{ color: '#991B1B', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1563,7 +1566,7 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
                     border: isRecording ? '1px solid #FECACA' : 'none'
                   }}
                   className={!isReadOnly ? 'btn-ghost' : ''}
-                  title={isRecording ? "停止录音 (科大讯飞实时转写)" : "开始录音 (科大讯飞实时转写)"}
+                  title={isRecording ? "停止录音 (本地实时转写)" : "开始录音 (本地实时转写)"}
                   type="button"
                 >
                   {isRecording ? (

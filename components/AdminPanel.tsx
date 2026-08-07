@@ -121,7 +121,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [iflytekApiSecret, setIflytekApiSecret] = useState('');
   const [iflytekApiKey, setIflytekApiKey] = useState('');
   const [iflytekDomain, setIflytekDomain] = useState('generalv3.5');
-  const [iflytekSttDomain, setIflytekSttDomain] = useState('iat');
   const [showIflytekKey, setShowIflytekKey] = useState(false);
   const [showIflytekSecret, setShowIflytekSecret] = useState(false);
   const [geminiKey, setGeminiKey] = useState('');
@@ -143,7 +142,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIflytekApiSecret(iflyConfig.apiSecret || '');
     setIflytekApiKey(iflyConfig.apiKey || '');
     setIflytekDomain(iflyConfig.domain || 'generalv3.5');
-    setIflytekSttDomain(iflyConfig.sttDomain || 'iat');
 
     // Load AI Config
     setAiModel((localStorage.getItem(AI_MODEL_KEY) as AIModelType) || 'ollama');
@@ -198,16 +196,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     const secret = iflytekApiSecret.trim();
     const key = iflytekApiKey.trim();
     const domain = iflytekDomain.trim();
-    const sttDomain = iflytekSttDomain.trim();
     
     setIflytekAppId(appId);
     setIflytekApiSecret(secret);
     setIflytekApiKey(key);
     setIflytekDomain(domain);
-    setIflytekSttDomain(sttDomain);
     
-    saveIflytekConfig(appId, secret, key, domain, sttDomain);
-    alert("科大讯飞配置已保存");
+    saveIflytekConfig(appId, secret, key, domain);
+    alert("讯飞星火配置已保存");
   };
 
   const loadOllamaModels = async () => {
@@ -636,7 +632,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               >
                 <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: cssVariables.warning }} />
                 <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                  讯飞星火模型将使用下方的"科大讯飞语音配置"中的认证信息。请确保下方的 Domain 参数正确。
+                  讯飞星火模型将使用下方"讯飞星火配置"中的认证信息。请确保 Domain 参数正确。
                 </div>
               </div>
             )}
@@ -1019,10 +1015,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </div>
                 <div>
                   <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    科大讯飞配置
+                    讯飞星火配置
                   </h3>
                   <p className="text-xs" style={{ color: cssVariables.textMuted }}>
-                    语音识别与大模型服务
+                    仅用于 AI 文本生成 · 语音转写已全面切换为本地 FunASR
                   </p>
                 </div>
               </div>
@@ -1104,45 +1100,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-tertiary)' }}>
-                        大模型 Domain
-                      </label>
-                      <input 
-                        type="text" 
-                        value={iflytekDomain}
-                        onChange={(e) => setIflytekDomain(e.target.value)}
-                        className="w-full px-3 py-2 text-sm outline-none transition-all focus:ring-2"
-                        style={{ 
-                          border: '1px solid var(--border)',
-                          background: 'var(--bg-secondary)',
-                          color: 'var(--text-primary)',
-                          borderRadius: 'var(--radius)'
-                        }}
-                        placeholder="generalv3.5"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-tertiary)' }}>
-                        语音模型
-                      </label>
-                      <select 
-                        value={iflytekSttDomain}
-                        onChange={(e) => setIflytekSttDomain(e.target.value)}
-                        className="w-full px-3 py-2 text-sm outline-none transition-all focus:ring-2 appearance-none"
-                        style={{ 
-                          border: '1px solid var(--border)',
-                          background: 'var(--bg-secondary)',
-                          color: 'var(--text-primary)',
-                          borderRadius: 'var(--radius)'
-                        }}
-                      >
-                        <option value="iat">通用标准版</option>
-                        <option value="pro_iat">极速转大模型</option>
-                        <option value="general_fast">实时语音大模型</option>
-                      </select>
-                    </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-tertiary)' }}>
+                      大模型 Domain
+                    </label>
+                    <input 
+                      type="text" 
+                      value={iflytekDomain}
+                      onChange={(e) => setIflytekDomain(e.target.value)}
+                      className="w-full px-3 py-2 text-sm outline-none transition-all focus:ring-2"
+                      style={{ 
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-secondary)',
+                        color: 'var(--text-primary)',
+                        borderRadius: 'var(--radius)'
+                      }}
+                      placeholder="generalv3.5"
+                    />
                   </div>
                   <div className="pt-2">
                     <button 
@@ -1155,7 +1129,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       }}
                     >
                       <Save className="w-4 h-4 mr-2" />
-                      保存讯飞配置
+                      保存星火配置
                     </button>
                   </div>
                 </div>
