@@ -62,6 +62,9 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<ClientType | ''>('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [teamFilter, setTeamFilter] = useState('');
+  const [keyAccountFilter, setKeyAccountFilter] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -98,13 +101,34 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
 
   const isReadOnly = selectedClient ? !canEdit(selectedClient) : false;
 
-  const filteredClients = clients.filter(c => 
-    (typeFilter === '' || c.clientType === typeFilter) && (
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    c.industry.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.region.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.ownerName?.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  // 下拉选项从实际数据动态派生，避免与数据不一致
+  const categoryOptions = React.useMemo(() =>
+    Array.from(new Set(clients.map(c => c.listCategory).filter(Boolean))).sort(), [clients]);
+  const teamOptions = React.useMemo(() =>
+    Array.from(new Set(clients.map(c => c.team).filter(Boolean))).sort(), [clients]);
+
+  const filteredClients = clients.filter(c => {
+    if (typeFilter !== '' && c.clientType !== typeFilter) return false;
+    if (categoryFilter && c.listCategory !== categoryFilter) return false;
+    if (teamFilter && c.team !== teamFilter) return false;
+    if (keyAccountFilter === 'yes' && c.isKeyAccount === false) return false;
+    if (keyAccountFilter === 'no' && c.isKeyAccount !== false) return false;
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return true;
+    // 关键词覆盖：名称/行业/地区/负责人/团队/清单分类/状态/标签/联系人(姓名/职务/电话)
+    const haystacks = [
+      c.name, c.industry, c.region, c.ownerName, c.team, c.listCategory, c.status,
+      ...(c.tags || []),
+      ...(c.contacts || []).flatMap(ct => [ct.name, ct.role, ct.phone]),
+    ];
+    return haystacks.some(v => (v || '').toLowerCase().includes(term));
+  });
+
+  const hasActiveFilter = !!(searchTerm.trim() || typeFilter || categoryFilter || teamFilter || keyAccountFilter);
+  const handleResetFilters = () => {
+    setSearchTerm(''); setTypeFilter(''); setCategoryFilter(''); setTeamFilter(''); setKeyAccountFilter('');
+    setCurrentPage(1);
+  };
 
   const totalPages = Math.ceil(filteredClients.length / ITEMS_PER_PAGE);
   const paginatedClients = filteredClients.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
@@ -286,32 +310,71 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
               <p className="text-xs text-[var(--text-tertiary)] mt-0.5">共 {clients.length} 个客户</p>
             </div>
          </div>
-         <div className="flex gap-3">
-            <div className="relative">
-               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] w-4 h-4" />
-               <input 
-                  type="text" 
-                  placeholder="搜索客户..." 
-                  className="input pl-10 pr-4 py-2.5 text-sm w-64"
-                  value={searchTerm}
-                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-               />
+         <div className="flex flex-col gap-2">
+            <div className="flex gap-3">
+               <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] w-4 h-4" />
+                  <input 
+                     type="text" 
+                     placeholder="搜索名称/行业/地区/团队/联系人..." 
+                     className="input pl-10 pr-4 py-2.5 text-sm w-72"
+                     value={searchTerm}
+                     onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                  />
+               </div>
+               <select
+                  className="input py-2.5 text-sm w-32"
+                  value={typeFilter}
+                  onChange={(e) => { setTypeFilter(e.target.value as ClientType | ''); setCurrentPage(1); }}
+               >
+                  <option value="">全部类型</option>
+                  {CLIENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+               </select>
+               <select
+                  className="input py-2.5 text-sm w-44"
+                  value={categoryFilter}
+                  onChange={(e) => { setCategoryFilter(e.target.value); setCurrentPage(1); }}
+                  title="按清单分类筛选"
+               >
+                  <option value="">全部清单分类</option>
+                  {categoryOptions.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+               </select>
+               <select
+                  className="input py-2.5 text-sm w-36"
+                  value={teamFilter}
+                  onChange={(e) => { setTeamFilter(e.target.value); setCurrentPage(1); }}
+                  title="按所属团队筛选"
+               >
+                  <option value="">全部团队</option>
+                  {teamOptions.map(t => <option key={t} value={t}>{t}</option>)}
+               </select>
+               <select
+                  className="input py-2.5 text-sm w-32"
+                  value={keyAccountFilter}
+                  onChange={(e) => { setKeyAccountFilter(e.target.value); setCurrentPage(1); }}
+                  title="按重点客户筛选"
+               >
+                  <option value="">重点客户：全部</option>
+                  <option value="yes">仅重点客户</option>
+                  <option value="no">仅非重点客户</option>
+               </select>
+               <button 
+                  onClick={handleAddMockClient}
+                  className="btn btn-primary"
+               >
+                  <Plus className="w-4 h-4" />
+                  新建客户
+               </button>
             </div>
-            <select
-               className="input py-2.5 text-sm w-36"
-               value={typeFilter}
-               onChange={(e) => { setTypeFilter(e.target.value as ClientType | ''); setCurrentPage(1); }}
-            >
-               <option value="">全部类型</option>
-               {CLIENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <button 
-               onClick={handleAddMockClient}
-               className="btn btn-primary"
-            >
-               <Plus className="w-4 h-4" />
-               新建客户
-            </button>
+            {hasActiveFilter && (
+               <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>已筛选出 <span className="font-semibold text-[var(--primary-600)]">{filteredClients.length}</span> 个客户（共 {clients.length} 个）</span>
+                  <button onClick={handleResetFilters} className="text-[var(--primary-600)] hover:underline flex items-center gap-0.5">
+                     <X className="w-3 h-3" /> 清除筛选
+                  </button>
+               </div>
+            )}
          </div>
        </div>
 
