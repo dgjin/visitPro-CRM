@@ -21,10 +21,13 @@ export const isAiAvailable = () => {
 
 /**
  * 发起一次对话补全调用，返回模型文本。
+ * 注意：总结类调用务必用非流式——思考型模型（如 qwen3）的流式输出先只吐 reasoning，
+ * 且推理链可能耗尽 max_tokens 导致正文为空。
  * @param {Array<{role:string, content:string}>} messages
  * @param {boolean} jsonMode 是否要求输出 JSON 对象
+ * @param {number} maxTokens 生成长度上限
  */
-export async function aiChat(messages, jsonMode = false) {
+export async function aiChat(messages, jsonMode = false, maxTokens = 2048) {
   const { baseUrl, apiKey, model, timeoutMs } = getAiConfig();
   if (!apiKey || !baseUrl) throw new Error('智能问数未配置，请在 server/.env 中配置 AI_API_KEY');
   const body = {
@@ -32,7 +35,7 @@ export async function aiChat(messages, jsonMode = false) {
     messages,
     temperature: jsonMode ? 0 : 0.3,
     stream: false,
-    max_tokens: 2048,
+    max_tokens: maxTokens,
     ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
   };
   const r = await fetch(`${baseUrl}/chat/completions`, {
@@ -100,7 +103,6 @@ export const DATASETS = {
     dimensions: {
       industry:   { label: '行业',     expr: '`industry`' },
       region:     { label: '地区',     expr: '`region`' },
-      status:     { label: '客户状态', expr: '`status`' },
       clientType: { label: '客户类型', expr: '`clientType`' },
       owner:      { label: '负责人',   expr: '`ownerName`' },
     },
@@ -120,6 +122,9 @@ export const DATASETS = {
 };
 // 「总计」维度：不按任何字段分组
 const NONE_DIMENSION = 'none';
+
+// 单次复合计划最多执行的子分析数，控制 LLM 调用成本与响应时长
+export const MAX_ANALYSES = 4;
 
 // ---- 输入净化：防 prompt injection（对齐 free-report AiQueryService） ----
 const MAX_QUESTION_LENGTH = 500;
@@ -166,13 +171,23 @@ export function buildPlanMessages(question, history) {
 
 当前可查询的数据集：
 ${buildCatalog()}
-说明：clients 是客户档案（含行业/地区/状态/类型/负责人），visits 是拜访记录（含拜访类型/氛围/负责人/拜访日期）。
+说明：clients 是客户档案（含行业/地区/类型/负责人），visits 是拜访记录（含拜访类型/氛围/负责人/拜访日期）。
 统计口径固定为「记录条数」。
 
-请只输出一个 JSON 对象，字段如下：
+根据问题类型输出两种格式之一：
+
+【单一问题】（明确问某一个分布/趋势/总数）直接输出：
+{"dataset": ..., "dimension": ..., "recent_months": ..., "owner_names": [...], "chart_type": ..., "title": ..., "unanswerable_reason": null}
+
+【开放式/综合性问题】（如"分析客户情况""综合统计""整体情况""详细分析"）输出复合计划，拆解为 2~4 个最有价值的子分析：
+{"recent_months": ..., "owner_names": [...], "analyses": [{"dataset": ..., "dimension": ..., "chart_type": ..., "title": ...}, ...], "unanswerable_reason": null}
+拆解优先：客户类问题优先覆盖 行业/地区/客户类型 等视角；拜访类问题优先覆盖 月份趋势/拜访类型/拜访氛围。
+复合计划中不要包含仅统计总数（dimension=none）的子分析。
+
+字段说明：
 - dataset: "clients" 或 "visits"，必须来自上面清单
-- dimension: 分组维度，必须来自该数据集的「可用分组维度」；问趋势/按月统计选 month（仅 visits）；只问总数选 none
-- recent_months: 整数或 null；用户说「最近三个月/近半年/今年」时换算为月数（最多 36），未限定时间填 null 表示全部
+- dimension: 分组维度，必须来自该数据集的「可用分组维度」；问趋势/按月统计选 month（仅 visits）；只在明确问总数时选 none
+- recent_months: 整数或 null；「当前/目前/现有」表示不限时间（null）；「最近三个月/近半年/今年」换算为月数（最多 36）
 - owner_names: 字符串数组；用户点名了具体负责人时填写，否则留空数组表示全部
 - chart_type: "bar" | "line" | "pie" | "table"；趋势用 line，分类对比用 bar，占比用 pie，仅总数用 table
 - title: 简短中文图表标题
@@ -200,43 +215,80 @@ function parseJsonLoose(raw) {
 }
 
 /**
- * 解析并白名单校验查询计划。
- * @returns {{plan?: object, textAnswer?: string}} plan 或直答文本
+ * 解析并白名单校验查询计划（支持单一计划与 analyses 复合计划两种格式）。
+ * @returns {{plans?: object[], plan?: object, textAnswer?: string}} plans（1~N 个）或直答文本；plan 为首个计划的兼容别名
  */
 export function resolvePlan(planJson) {
-  const scopeHint = `当前可问数的数据集有：客户（行业/地区/状态/类型/负责人）、拜访（类型/氛围/负责人/月份）。`;
-  const plan = parseJsonLoose(planJson);
-  if (!plan) return { textAnswer: `没能理解这个问题，请换一种说法，例如「各行业客户数量分布」。${scopeHint}` };
+  const scopeHint = `当前可问数的数据集有：客户（行业/地区/类型/负责人）、拜访（类型/氛围/负责人/月份）。`;
+  const raw = parseJsonLoose(planJson);
+  if (!raw || typeof raw !== 'object') {
+    return { textAnswer: `没能理解这个问题，请换一种说法，例如「各行业客户数量分布」。${scopeHint}` };
+  }
 
-  const unanswerable = plan.unanswerable_reason;
+  const unanswerable = raw.unanswerable_reason;
   if (typeof unanswerable === 'string' && unanswerable.trim() && unanswerable.trim() !== 'null') {
     return { textAnswer: `${unanswerable.trim()}${scopeHint}` };
   }
 
-  const ds = DATASETS[plan.dataset];
-  if (!ds) return { textAnswer: `没能定位到您要查询的数据集。${scopeHint}` };
+  // 公共过滤条件（复合计划写在顶层，子分析可覆盖）
+  const commonMonths = parseRecentMonths(raw.recent_months);
+  const commonOwners = parseOwnerNames(raw.owner_names);
+
+  if (Array.isArray(raw.analyses) && raw.analyses.length > 0) {
+    const plans = [];
+    for (const node of raw.analyses) {
+      if (plans.length >= MAX_ANALYSES) break;
+      if (!node || typeof node !== 'object') continue;
+      const p = parseOnePlan(node, commonMonths, commonOwners);
+      if (p) plans.push(p);
+    }
+    if (plans.length === 0) {
+      return { textAnswer: `没能识别出有效的分析视角，请换一种说法，例如「各行业客户数量分布」。${scopeHint}` };
+    }
+    return { plans, plan: plans[0] };
+  }
+
+  const plan = parseOnePlan(raw, commonMonths, commonOwners);
+  if (!plan) return { textAnswer: `没能定位到您要查询的数据集。${scopeHint}` };
+  return { plans: [plan], plan };
+}
+
+/** 解析单个子分析；数据集非法返回 null */
+function parseOnePlan(node, commonMonths, commonOwners) {
+  const ds = DATASETS[node.dataset];
+  if (!ds) return null;
 
   // 维度白名单校验；非法维度回退为「总数」
-  let dimension = plan.dimension;
+  let dimension = node.dimension;
   if (dimension !== NONE_DIMENSION && !(dimension && ds.dimensions[dimension])) {
     dimension = NONE_DIMENSION;
   }
 
-  // 时间范围：仅接受 1~36 的整数月
-  let recentMonths = Number(plan.recent_months);
-  if (!Number.isInteger(recentMonths) || recentMonths <= 0) recentMonths = null;
-  else recentMonths = Math.min(recentMonths, 36);
+  const recentMonths = Object.prototype.hasOwnProperty.call(node, 'recent_months')
+    ? parseRecentMonths(node.recent_months) : commonMonths;
   // month 趋势维度默认给足 12 个月窗口，避免只看 1 个月画不出趋势
-  if (dimension === 'month' && recentMonths === null) recentMonths = 12;
+  const effectiveMonths = (dimension === 'month' && recentMonths === null) ? 12 : recentMonths;
 
-  const ownerNames = Array.isArray(plan.owner_names)
-    ? [...new Set(plan.owner_names.filter(n => typeof n === 'string' && n.trim()))].slice(0, 5)
-    : [];
+  const ownerNames = Array.isArray(node.owner_names)
+    ? parseOwnerNames(node.owner_names) : [...commonOwners];
 
-  const chartType = ['line', 'pie', 'table'].includes(plan.chart_type) ? plan.chart_type : 'bar';
-  const title = (typeof plan.title === 'string' && plan.title.trim()) ? plan.title.trim().slice(0, 60) : `${ds.label}统计`;
+  const chartType = ['line', 'pie', 'table'].includes(node.chart_type) ? node.chart_type : 'bar';
+  const title = (typeof node.title === 'string' && node.title.trim()) ? node.title.trim().slice(0, 60) : `${ds.label}统计`;
 
-  return { plan: { dataset: plan.dataset, dimension, recentMonths, ownerNames, chartType, title } };
+  return { dataset: node.dataset, dimension, recentMonths: effectiveMonths, ownerNames, chartType, title };
+}
+
+/** 时间范围：仅接受 1~36 的整数月 */
+function parseRecentMonths(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) return null;
+  return Math.min(n, 36);
+}
+
+/** 负责人过滤：去重、最多 5 个 */
+function parseOwnerNames(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter(n => typeof n === 'string' && n.trim()))].slice(0, 5);
 }
 
 // ---- 取数：白名单列 + 参数化 SQL + 数据权限（visibleIds） ----
@@ -323,16 +375,32 @@ export function buildScopeNote(plan, dsLabel, dimensionLabel, ownerNames) {
   return note;
 }
 
-export function buildSummaryMessages(question, plan, data, scopeNote) {
-  const tableText = data.rows.map(r => r.join('：')).join('\n');
+/** 复合计划的口径说明：合并各子分析视角 */
+export function buildCombinedScopeNote(plans) {
+  const perspectives = plans.map(p => `${DATASETS[p.dataset].label}·${p.title}`).join('、');
+  return `复合分析（${plans.length} 个视角）：${perspectives} ｜ 仅统计您当前权限范围内的数据`;
+}
+
+/**
+ * 基于查询结果构建总结 prompt。支持多结果（复合计划）：
+ * buildSummaryMessages(question, plan, data, scopeNote)            —— 单结果（兼容）
+ * buildSummaryMessages(question, plans[], results[], scopeNote)    —— 多结果综合分析
+ */
+export function buildSummaryMessages(question, planOrPlans, dataOrResults, scopeNote) {
+  const plans = Array.isArray(planOrPlans) ? planOrPlans : [planOrPlans];
+  const results = Array.isArray(dataOrResults) ? dataOrResults : [dataOrResults];
+  let resultText = '';
+  plans.forEach((p, i) => {
+    const data = results[i];
+    const tableText = data.rows.map(r => r.join('：')).join('\n');
+    resultText += `【${p.title}】（${data.columns.join('，')}）：\n${tableText || '（无数据）'}\n\n`;
+  });
+  const multi = plans.length > 1;
+  const systemPrompt = multi
+    ? '你是 CRM 数据分析助手。请基于下面多个维度的统计结果，用简洁的中文做综合分析：先用 1-2 句给出总体结论，再分条列出 3-5 个关键发现（可引用具体数值，指出最高/最低/集中度/异常点），最后给 1-2 条简短的业务建议。不要编造数据以外的信息，不超过 400 字，不要输出 Markdown 标题，分条可用「1. 2. 3.」编号。'
+    : '你是 CRM 数据分析助手。请基于下面的查询结果，用简洁的中文回答用户问题：先给结论，再点出 1-3 个关键特征（最高/最低/集中度等）。不要编造数据以外的信息，不超过 150 字，不要输出 Markdown 标题。';
   return [
-    {
-      role: 'system',
-      content: `你是 CRM 数据分析助手。请基于下面的查询结果，用简洁的中文回答用户问题：先给结论，再点出 1-3 个关键特征（最高/最低/集中度等）。不要编造数据以外的信息，不超过 150 字，不要输出 Markdown 标题。`,
-    },
-    {
-      role: 'user',
-      content: `用户问题：${question}\n\n统计口径：${scopeNote}\n\n查询结果（${data.columns.join('，')}）：\n${tableText || '（无数据）'}`,
-    },
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `用户问题：${question}\n\n统计口径：${scopeNote}\n\n查询结果：\n${resultText}` },
   ];
 }

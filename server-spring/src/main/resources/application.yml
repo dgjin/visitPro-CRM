@@ -1,0 +1,34 @@
+# VisitPro API (Spring Boot)
+# 环境变量与 Node 版 server/.env 同名，可用同一份 .env：
+#   set -a; source ../server/.env; set +a; mvn spring-boot:run
+server:
+  port: ${PORT:3006}
+
+spring:
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:visitpro}?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8
+    username: ${DB_USER:visitpro}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+
+visitpro:
+  jwt:
+    secret: ${JWT_SECRET:}
+    ttl: ${JWT_TTL:7d}
+  cors:
+    origins: ${CORS_ORIGIN:http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://localhost:4173}
+  login:
+    max-fails: ${LOGIN_MAX_FAILS:5}
+    lock-minutes: ${LOGIN_LOCK_MINUTES:15}
+  ollama:
+    base: ${OLLAMA_BASE:http://127.0.0.1:11434}
+  ai:
+    base-url: ${AI_BASE_URL:https://api.deepseek.com}
+    api-key: ${AI_API_KEY:}
+    model: ${AI_MODEL:deepseek-chat}
+    timeout-ms: ${AI_TIMEOUT_MS:60000}
+
+logging:
+  level:
+    root: INFO

@@ -5,10 +5,10 @@
 import { Router } from 'express';
 import { pool, requireAuth, getVisibleUserIds } from '../core.js';
 import {
-  isAiAvailable, aiChat, aiChatStream,
+  isAiAvailable, aiChat,
   sanitizeQuestion, sanitizeHistory,
   buildPlanMessages, resolvePlan,
-  fetchData, buildChart, buildScopeNote, buildSummaryMessages,
+  fetchData, buildChart, buildScopeNote, buildCombinedScopeNote, buildSummaryMessages,
   DATASETS,
 } from '../aiQuery.js';
 
@@ -49,36 +49,48 @@ const runAiQuery = async (question, history, req, onEvent) => {
     onEvent('text_only', { answer: resolved.textAnswer, scope_note: null });
     return;
   }
-  const plan = resolved.plan;
+  const plans = resolved.plans;
 
   onEvent('status', '正在查询数据...');
-  const data = await fetchData(plan, visibleIds, pool);
-  const ds = DATASETS[plan.dataset];
-  const chart = buildChart(data, plan);
-  const scopeNote = buildScopeNote(plan, ds.label, data.dimensionLabel, plan.ownerNames);
+  // 逐个执行子分析（复合计划 2~4 个视角），事件带 index 供前端分组渲染
+  const results = [];
+  for (let i = 0; i < plans.length; i++) {
+    const plan = plans[i];
+    const data = await fetchData(plan, visibleIds, pool);
+    results.push(data);
+    const ds = DATASETS[plan.dataset];
 
-  onEvent('plan', {
-    dataset: plan.dataset, dataset_label: ds.label, dimension: plan.dimension,
-    recent_months: plan.recentMonths, owner_names: plan.ownerNames,
-    chart_type: plan.chartType, title: plan.title,
-  });
-  if (chart) onEvent('chart', chart);
-  onEvent('table', { columns: data.columns, rows: data.rows });
+    onEvent('plan', {
+      index: i, analysis_count: plans.length,
+      dataset: plan.dataset, dataset_label: ds.label, dimension: plan.dimension,
+      recent_months: plan.recentMonths, owner_names: plan.ownerNames,
+      chart_type: plan.chartType, title: plan.title,
+    });
+    const chart = buildChart(data, plan);
+    if (chart) onEvent('chart', { ...chart, index: i });
+    onEvent('table', { index: i, columns: data.columns, rows: data.rows });
+  }
+
+  const scopeNote = plans.length === 1
+    ? buildScopeNote(plans[0], DATASETS[plans[0].dataset].label, results[0].dimensionLabel, plans[0].ownerNames)
+    : buildCombinedScopeNote(plans);
 
   onEvent('status', '正在生成结论...');
-  // LLM Call #2: 基于查询结果流式总结
+  // LLM Call #2: 基于查询结果总结（非流式：思考型模型流式只吐 reasoning，易耗尽 token 致正文为空）
   let answer;
   try {
-    answer = await aiChatStream(buildSummaryMessages(safeQuestion, plan, data, scopeNote),
-      chunk => onEvent('answer_delta', chunk));
+    answer = await aiChat(buildSummaryMessages(safeQuestion, plans, results, scopeNote), false, 4096);
+    if (!answer || !answer.trim()) throw new Error('模型返回内容为空（推理可能耗尽 token 配额）');
+    onEvent('answer_delta', answer);
   } catch (e) {
     // 总结失败不阻塞：回退为直接展示数据行数
-    answer = `查询完成，共 ${data.rows.length} 组数据。（AI 总结失败：${e.message}）`;
+    const totalRows = results.reduce((sum, d) => sum + d.rows.length, 0);
+    answer = `查询完成，共 ${totalRows} 组数据。（AI 总结失败：${e.message}）`;
     onEvent('answer_delta', answer);
   }
 
   onEvent('scope_note', scopeNote);
-  return { answer, scopeNote, plan };
+  return { answer, scopeNote, plans };
 };
 
 // 智能问数可用性（前端据此提示/隐藏入口）
@@ -104,7 +116,7 @@ router.post('/api/ai/query/stream', requireAuth, async (req, res) => {
   try {
     const result = await runAiQuery(question, history, req, send);
     auditAiQuery(req.user.uid, typeof question === 'string' ? question.slice(0, 500) : '',
-      'success', result ? JSON.stringify({ dataset: result.plan.dataset, dimension: result.plan.dimension }) : 'text_only');
+      'success', result ? JSON.stringify(result.plans.map(p => ({ dataset: p.dataset, dimension: p.dimension }))) : 'text_only');
     send('done', '');
   } catch (e) {
     console.error('AI query error:', e);
