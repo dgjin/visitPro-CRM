@@ -9,12 +9,12 @@ import {
 
 const router = Router();
 
-// 列表查询（客户/拜访按数据权限过滤）
+// 列表查询（拜访按数据权限过滤；客户对所有用户可见，写权限另行控制）
 router.get('/api/:table', requireAuth, async (req, res) => {
   const meta = getTableMeta(req, res);
   if (!meta) return;
   try {
-    const scoped = req.params.table === 'clients' || req.params.table === 'visits';
+    const scoped = req.params.table === 'visits';
     const visibleIds = scoped ? await getVisibleUserIds(req.user) : null;
 
     let sql;

@@ -48,14 +48,14 @@ public class CrudController {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Unknown table: " + table));
     }
 
-    /** 列表查询（客户/拜访按数据权限过滤） */
+    /** 列表查询（拜访按数据权限过滤；客户对所有用户可见，写权限另行控制） */
     @GetMapping("/api/{table}")
     public ResponseEntity<?> list(@PathVariable String table, HttpServletRequest req) {
         TableMeta.Meta meta = TableMeta.of(table);
         if (meta == null) return unknownTable(table);
         AuthUser auth = AuthFilter.user(req);
         try {
-            boolean scoped = table.equals("clients") || table.equals("visits");
+            boolean scoped = table.equals("visits");
             List<String> visibleIds = scoped ? dataScope.getVisibleUserIds(auth) : null;
 
             StringBuilder sql = new StringBuilder();
