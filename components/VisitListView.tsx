@@ -88,7 +88,7 @@ const VisitListView: React.FC<VisitListViewProps> = ({
   const filteredVisits = visits.filter(v => {
       const searchLower = listSearchTerm.toLowerCase();
       const matchSearch = 
-        v.clientName.toLowerCase().includes(searchLower) || 
+        (v.clientName || '').toLowerCase().includes(searchLower) || 
         (v.content || '').toLowerCase().includes(searchLower) ||
         (v.summary || '').toLowerCase().includes(searchLower) ||
         (v.ownerName || '').toLowerCase().includes(searchLower) ||

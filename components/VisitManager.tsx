@@ -766,9 +766,9 @@ export const VisitManager: React.FC<VisitManagerProps> = ({
     }
   };
 
-  const filteredClients = clients.filter(c => 
-    c.name.toLowerCase().includes(clientSearchTerm.toLowerCase()) ||
-    c.industry.toLowerCase().includes(clientSearchTerm.toLowerCase())
+  const filteredClients = clients.filter(c =>
+    (c.name || '').toLowerCase().includes(clientSearchTerm.toLowerCase()) ||
+    (c.industry || '').toLowerCase().includes(clientSearchTerm.toLowerCase())
   );
 
   const openVisit = (visit: Visit) => {
