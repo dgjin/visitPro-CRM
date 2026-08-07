@@ -24,6 +24,9 @@ local-asr/**/*.log
 # 后端数据库连接配置（含密码）
 server/.env
 
+# 初始化数据快照（含用户手机号与密码哈希，仅保留在本地，不入版本库；由 db/export-seed.cjs 生成）
+db/seed_data.sql
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

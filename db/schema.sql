@@ -1,6 +1,8 @@
 -- ==========================================
 -- VisitPro CRM - MySQL 本地数据库初始化脚本
 -- 执行方式: mysql -u root < db/schema.sql
+-- 全量初始化数据（角色/部门/用户/客户快照）: mysql -u root visitpro < db/seed_data.sql
+-- 重新生成种子数据: node db/export-seed.cjs
 -- ==========================================
 
 -- 1. 创建数据库（utf8mb4 支持中文与 emoji）
@@ -67,6 +69,9 @@ CREATE TABLE IF NOT EXISTS clients (
   status VARCHAR(50),
   clientType VARCHAR(20),
   region VARCHAR(100),
+  isKeyAccount TINYINT(1) NOT NULL DEFAULT 1 COMMENT '重点客户：1=是 0=否',
+  team VARCHAR(100) DEFAULT NULL COMMENT '所属团队',
+  listCategory VARCHAR(50) DEFAULT NULL COMMENT '清单分类（重点营销客户大表的客户分类）',
   contacts JSON,
   customFields JSON,
   typeProfile JSON,
@@ -87,6 +92,15 @@ PREPARE stmt FROM @sql_client_type; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @has_type_profile = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'visitpro' AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'typeProfile');
 SET @sql_type_profile = IF(@has_type_profile = 0, 'ALTER TABLE clients ADD COLUMN typeProfile JSON NULL', 'SELECT 1');
 PREPARE stmt FROM @sql_type_profile; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @has_key_account = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'visitpro' AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'isKeyAccount');
+SET @sql_key_account = IF(@has_key_account = 0, 'ALTER TABLE clients ADD COLUMN isKeyAccount TINYINT(1) NOT NULL DEFAULT 1 COMMENT ''重点客户：1=是 0=否''', 'SELECT 1');
+PREPARE stmt FROM @sql_key_account; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @has_team = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'visitpro' AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'team');
+SET @sql_team = IF(@has_team = 0, 'ALTER TABLE clients ADD COLUMN team VARCHAR(100) DEFAULT NULL COMMENT ''所属团队''', 'SELECT 1');
+PREPARE stmt FROM @sql_team; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @has_list_category = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'visitpro' AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'listCategory');
+SET @sql_list_category = IF(@has_list_category = 0, 'ALTER TABLE clients ADD COLUMN listCategory VARCHAR(50) DEFAULT NULL COMMENT ''清单分类''', 'SELECT 1');
+PREPARE stmt FROM @sql_list_category; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 7. 拜访记录表
 CREATE TABLE IF NOT EXISTS visits (
@@ -127,7 +141,7 @@ CREATE TABLE IF NOT EXISTS login_history (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ==========================================
--- 9. 种子数据
+-- 9. 种子数据（最小可用集；全量快照见 db/seed_data.sql，由 db/export-seed.cjs 生成）
 -- ==========================================
 
 -- 默认角色
