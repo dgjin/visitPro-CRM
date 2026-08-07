@@ -583,8 +583,9 @@ export const ClientDetailTabs: React.FC<{
                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">负责人</label>
                                         <div className="flex items-center p-2.5 bg-[var(--bg-tertiary)] rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)]">
                                             <UserIcon className="w-4 h-4 mr-2 text-[var(--text-tertiary)]" />
-                                            {selectedClient.ownerName || 'Unknown'}
+                                            {selectedClient.ownerName || '未指派'}
                                         </div>
+                                        <p className="mt-1 text-[10px] text-[var(--text-tertiary)]">负责人调整请前往「组织管理 → 客户负责人」</p>
                                      </div>
                                   </div>
                                </div>

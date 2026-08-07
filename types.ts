@@ -208,7 +208,7 @@ export interface Notification {
   read: boolean;
 }
 
-export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'AI_QUERY' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES';
+export type ViewState = 'DASHBOARD' | 'CLIENTS' | 'VISITS' | 'AI_QUERY' | 'ADMIN' | 'USERS' | 'DEPARTMENTS' | 'ROLES' | 'CLIENT_OWNERS';
 
 export type AIModelType = 'ollama' | 'gemini' | 'deepseek' | 'spark' | 'kimi';
 

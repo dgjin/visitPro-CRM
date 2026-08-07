@@ -14,6 +14,7 @@ const AdminPanel = lazy(() => import('./components/AdminPanel').then(m => ({ def
 const UserManager = lazy(() => import('./components/UserManager').then(m => ({ default: m.UserManager })));
 const DepartmentManager = lazy(() => import('./components/DepartmentManager').then(m => ({ default: m.DepartmentManager })));
 const RoleManager = lazy(() => import('./components/RoleManager').then(m => ({ default: m.RoleManager })));
+const ClientOwnerManager = lazy(() => import('./components/ClientOwnerManager').then(m => ({ default: m.ClientOwnerManager })));
 // 语音助手暂时隐藏，保留引用待恢复（懒加载分包，未渲染时不会请求）
 const VoiceAssistant = lazy(() => import('./components/VoiceAssistant').then(m => ({ default: m.VoiceAssistant })));
 
@@ -421,6 +422,13 @@ const App: React.FC = () => {
                 <RoleManager 
                   roles={roles} 
                   setRoles={setRoles} 
+                />
+              )}
+              {currentView === 'CLIENT_OWNERS' && (
+                <ClientOwnerManager 
+                  clients={clients} 
+                  setClients={setClients} 
+                  users={users}
                 />
               )}
               {currentView === 'ADMIN' && (

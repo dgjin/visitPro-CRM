@@ -13,6 +13,7 @@ import {
   Network,
   ShieldCheck,
   UserCog,
+  UserCheck,
   ChevronUp,
   Check,
   Palette,
@@ -289,6 +290,7 @@ export const Layout: React.FC<LayoutProps> = ({
       { label: 'Go to Users (用户管理)', view: 'USERS', icon: UserCog, adminOnly: true },
       { label: 'Go to Departments (部门管理)', view: 'DEPARTMENTS', icon: Network, adminOnly: true },
       { label: 'Go to Roles (角色管理)', view: 'ROLES', icon: ShieldCheck, adminOnly: true },
+      { label: 'Go to Client Owners (客户负责人管理)', view: 'CLIENT_OWNERS', icon: UserCheck, adminOnly: true },
       { label: 'System Settings (系统设置)', view: 'ADMIN', icon: Settings, adminOnly: true },
     ].filter(item => {
         if (item.adminOnly && getUserRoleName(user) !== '管理员') return false;
@@ -365,6 +367,7 @@ export const Layout: React.FC<LayoutProps> = ({
       USERS: '用户管理',
       DEPARTMENTS: '部门管理',
       ROLES: '角色管理',
+      CLIENT_OWNERS: '客户负责人管理',
       ADMIN: '系统设置'
     };
     return titles[currentView] || '';
@@ -527,6 +530,7 @@ export const Layout: React.FC<LayoutProps> = ({
                <NavItem view="USERS" icon={UserCog} label="用户管理" />
                <NavItem view="DEPARTMENTS" icon={Network} label="部门管理" />
                <NavItem view="ROLES" icon={ShieldCheck} label="角色管理" />
+               <NavItem view="CLIENT_OWNERS" icon={UserCheck} label="客户负责人" />
             </div>
           )}
 
@@ -647,6 +651,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 <NavItem view="USERS" icon={UserCog} label="用户管理" />
                 <NavItem view="DEPARTMENTS" icon={Network} label="部门管理" />
                 <NavItem view="ROLES" icon={ShieldCheck} label="角色管理" />
+                <NavItem view="CLIENT_OWNERS" icon={UserCheck} label="客户负责人" />
                 <div className="my-4 h-px bg-[var(--gray-200)]" />
                 <NavItem view="ADMIN" icon={Settings} label="系统设置" />
               </>
