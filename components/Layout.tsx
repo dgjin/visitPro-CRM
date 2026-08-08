@@ -7,7 +7,6 @@ import {
   Users, 
   Briefcase, 
   Settings, 
-  Menu, 
   X, 
   Bell,
   Network,
@@ -34,7 +33,8 @@ import {
   Command,
   ChevronRight,
   HelpCircle,
-  BookOpen
+  BookOpen,
+  MoreHorizontal
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -453,11 +453,11 @@ export const Layout: React.FC<LayoutProps> = ({
       `}</style>
       
       {/* Global Toast Container */}
-      <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed top-4 left-4 right-4 md:left-auto md:right-4 z-[100] flex flex-col gap-2 pointer-events-none">
           {activeToasts.map(toast => (
               <div 
                  key={toast.id} 
-                 className="pointer-events-auto bg-white rounded-lg shadow-lg border border-[var(--gray-200)] p-4 min-w-[320px] animate-slide-in-right flex items-start cursor-pointer hover:shadow-xl transition-shadow"
+                 className="pointer-events-auto bg-white rounded-lg shadow-lg border border-[var(--gray-200)] p-4 md:min-w-[320px] max-w-full animate-slide-in-right flex items-start cursor-pointer hover:shadow-xl transition-shadow"
                  onClick={() => markAsRead(toast.id)}
                  role="alert"
                  style={{ borderLeftWidth: '4px', borderLeftColor: 
@@ -617,36 +617,25 @@ export const Layout: React.FC<LayoutProps> = ({
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         {/* Mobile Header */}
         <header className="md:hidden h-14 bg-white border-b border-[var(--gray-200)] flex items-center justify-between px-4 z-20">
-          <div className="flex items-center">
+          <div className="flex items-center min-w-0">
             <div 
-              className="w-8 h-8 rounded-lg flex items-center justify-center mr-2"
+              className="w-8 h-8 rounded-lg flex items-center justify-center mr-2 flex-shrink-0"
               style={{ backgroundColor: getThemeColor() }}
             >
               <Handshake className="w-4 h-4 text-white" />
             </div>
-            <span className="font-bold text-[var(--gray-800)] text-lg">VisitPro</span>
+            <div className="min-w-0">
+              <span className="font-bold text-[var(--gray-800)] leading-tight block">VisitPro</span>
+              <span className="text-[10px] text-[var(--gray-400)] leading-tight block truncate">{getViewTitle()}</span>
+            </div>
           </div>
-          <button 
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="w-9 h-9 flex items-center justify-center rounded-lg text-[var(--gray-600)] hover:bg-[var(--gray-100)] transition-colors"
-          >
-            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
         </header>
 
         {/* Mobile Menu Overlay */}
         {isMobileMenuOpen && (
-          <div className="absolute top-14 left-0 w-full h-[calc(100%-3.5rem)] bg-white z-10 p-4 flex flex-col md:hidden animate-fade-in-down overflow-y-auto">
-            <div className="space-y-1">
-              <NavItem view="DASHBOARD" icon={LayoutDashboard} label="仪表盘" />
-              <NavItem view="CLIENTS" icon={Users} label="客户管理" />
-              <NavItem view="VISITS" icon={Briefcase} label="拜访记录" />
-              <NavItem view="AI_QUERY" icon={Sparkles} label="智能问数" />
-            </div>
-            
+          <div className="absolute top-14 bottom-16 left-0 right-0 bg-white z-50 p-4 flex flex-col md:hidden animate-fade-in-down overflow-y-auto">
             {isAdmin && (
               <>
-                <div className="my-4 h-px bg-[var(--gray-200)]" />
                 <p className="px-3 text-[11px] font-semibold text-[var(--gray-400)] uppercase tracking-wider mb-2">组织管理</p>
                 <NavItem view="USERS" icon={UserCog} label="用户管理" />
                 <NavItem view="DEPARTMENTS" icon={Network} label="部门管理" />
@@ -826,10 +815,51 @@ export const Layout: React.FC<LayoutProps> = ({
         </header>
 
         {/* Scrollable Content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="flex-1 overflow-y-auto p-4 pb-24 md:p-6">
           {children}
         </main>
       </div>
+
+      {/* Mobile Bottom Tab Bar */}
+      <nav
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-[var(--gray-200)] grid grid-cols-5"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        {([
+          { view: 'DASHBOARD' as ViewState, icon: LayoutDashboard, label: '仪表盘' },
+          { view: 'CLIENTS' as ViewState, icon: Users, label: '客户' },
+          { view: 'VISITS' as ViewState, icon: Briefcase, label: '拜访' },
+          { view: 'AI_QUERY' as ViewState, icon: Sparkles, label: '问数' },
+        ]).map(({ view, icon: Icon, label }) => {
+          const active = currentView === view;
+          return (
+            <button
+              key={view}
+              onClick={() => { setView(view); setIsMobileMenuOpen(false); }}
+              className="flex flex-col items-center justify-center py-2 transition-colors"
+              style={{ color: active ? getThemeColor() : 'var(--gray-500)' }}
+            >
+              <Icon className="w-5 h-5" style={{ strokeWidth: active ? 2.4 : 2 }} />
+              <span className={`mt-0.5 ${active ? 'font-semibold' : 'font-medium'}`} style={{ fontSize: '10px' }}>{label}</span>
+            </button>
+          );
+        })}
+        {/* More: admin views & settings entry */}
+        {(() => {
+          const inMoreViews: ViewState[] = ['USERS', 'DEPARTMENTS', 'ROLES', 'CLIENT_OWNERS', 'ADMIN'];
+          const active = isMobileMenuOpen || inMoreViews.includes(currentView);
+          return (
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="flex flex-col items-center justify-center py-2 transition-colors"
+              style={{ color: active ? getThemeColor() : 'var(--gray-500)' }}
+            >
+              {active ? <X className="w-5 h-5" style={{ strokeWidth: 2.4 }} /> : <MoreHorizontal className="w-5 h-5" />}
+              <span className={`mt-0.5 ${active ? 'font-semibold' : 'font-medium'}`} style={{ fontSize: '10px' }}>{active ? '关闭' : '更多'}</span>
+            </button>
+          );
+        })()}
+      </nav>
 
       {/* Global Command Palette Modal */}
       {isCommandOpen && (
