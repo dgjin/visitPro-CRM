@@ -38,6 +38,21 @@ db/seed_data.sql
 *.sln
 *.sw?
 
+# 各类 AI 编程工具的技能/提示词资产（不属于项目代码，勿入库）
+.agent/
+.claude/
+.codebuddy/
+.codex/
+.continue/
+.cursor/
+.gemini/
+.kiro/
+.opencode/
+.qoder/
+.roo/
+.trae/
+.windsurf/
+
 # 验证截图
 *.png
 

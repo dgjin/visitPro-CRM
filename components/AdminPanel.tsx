@@ -257,9 +257,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         return f;
       }));
     } else {
-      const key = fieldLabel.toLowerCase().replace(/\s+/g, '_').replace(/[^\w]/g, '');
+      // 保留中文等多语言字符：旧逻辑 [^\w] 会把中文字符全部剔除，导致所有中文字段名的 key 均为空串而互相冲突
+      const key = fieldLabel.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^\p{L}\p{N}_]/gu, '') || `field_${Date.now()}`;
       
-      if (fieldDefinitions.some(f => f.entityType === activeTab && f.key === key)) {
+      if (fieldDefinitions.some(f => f.entityType === activeTab && (f.key === key || f.label === fieldLabel.trim()))) {
         alert("该字段名已存在，请使用其他名称");
         return;
       }

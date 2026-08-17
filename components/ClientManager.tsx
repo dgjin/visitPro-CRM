@@ -196,7 +196,7 @@ export const ClientManager: React.FC<ClientManagerProps> = ({
       subsidiaries: [],
       financialAnalysis: "",
       supplyChainInfo: "",
-      tags: [],
+      tags: ['业务团队新建客户'],
       customFields: {},
       typeProfile: { reportingUnit: '安徽省分公司' },
       ownerId: currentUser?.id,
