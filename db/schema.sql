@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS clients (
   isKeyAccount TINYINT(1) NOT NULL DEFAULT 1 COMMENT '重点客户：1=是 0=否',
   team VARCHAR(100) DEFAULT NULL COMMENT '所属团队',
   listCategory VARCHAR(50) DEFAULT NULL COMMENT '清单分类（重点营销客户大表的客户分类）',
+  isNewClient TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否新建客户：1=是 0=否（存量清单客户默认否）',
   contacts JSON COMMENT '联系人列表（JSON）',
   customFields JSON COMMENT '自定义字段（JSON）',
   typeProfile JSON COMMENT '按客户类型区分的专属信息项（JSON）',
@@ -111,6 +112,9 @@ PREPARE stmt FROM @sql_team; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET @has_list_category = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'visitpro' AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'listCategory');
 SET @sql_list_category = IF(@has_list_category = 0, 'ALTER TABLE clients ADD COLUMN listCategory VARCHAR(50) DEFAULT NULL COMMENT ''清单分类（重点营销客户大表的客户分类）''', 'SELECT 1');
 PREPARE stmt FROM @sql_list_category; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @has_new_client = (SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'visitpro' AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'isNewClient');
+SET @sql_new_client = IF(@has_new_client = 0, 'ALTER TABLE clients ADD COLUMN isNewClient TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''是否新建客户：1=是 0=否（存量清单客户默认否）''', 'SELECT 1');
+PREPARE stmt FROM @sql_new_client; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- 7. 拜访记录表
 CREATE TABLE IF NOT EXISTS visits (

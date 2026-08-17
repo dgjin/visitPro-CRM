@@ -94,7 +94,7 @@ export const TABLES = {
     dates: ['last_login_at', 'created_at'],
   },
   clients: {
-    columns: ['id', 'name', 'industry', 'status', 'clientType', 'region', 'isKeyAccount', 'team', 'listCategory', 'contacts', 'customFields', 'typeProfile', 'ownerId', 'ownerName', 'equityStructure', 'subsidiaries', 'financialAnalysis', 'supplyChainInfo', 'tags', 'created_at'],
+    columns: ['id', 'name', 'industry', 'status', 'clientType', 'region', 'isKeyAccount', 'team', 'listCategory', 'isNewClient', 'contacts', 'customFields', 'typeProfile', 'ownerId', 'ownerName', 'equityStructure', 'subsidiaries', 'financialAnalysis', 'supplyChainInfo', 'tags', 'created_at'],
     json: ['contacts', 'customFields', 'typeProfile', 'equityStructure', 'subsidiaries', 'tags'],
     dates: ['created_at'],
   },

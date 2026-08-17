@@ -553,6 +553,18 @@ export const ClientDetailTabs: React.FC<{
                                         </select>
                                      </div>
                                      <div>
+                                        <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">是否新建客户</label>
+                                        <select
+                                           className="input"
+                                           value={selectedClient.isNewClient === true ? '是' : '否'}
+                                           onChange={e => setSelectedClient({...selectedClient, isNewClient: e.target.value === '是'})}
+                                           disabled={isReadOnly}
+                                        >
+                                           <option value="是">是</option>
+                                           <option value="否">否</option>
+                                        </select>
+                                     </div>
+                                     <div>
                                         <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2">所属团队</label>
                                         <input
                                            className="input"

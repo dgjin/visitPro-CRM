@@ -17,7 +17,7 @@ const TABLE_COLUMNS = {
   roles: ['id', 'name', 'description'],
   departments: ['id', 'name', 'parentId', 'managerId'],
   users: ['id', 'name', 'email', 'phone', 'avatarUrl', 'password', 'roleId', 'departmentId', 'status', 'must_change_password', 'customFields', 'theme_preference'],
-  clients: ['id', 'name', 'industry', 'status', 'clientType', 'region', 'isKeyAccount', 'team', 'listCategory', 'contacts', 'customFields', 'typeProfile', 'ownerId', 'ownerName', 'equityStructure', 'subsidiaries', 'financialAnalysis', 'supplyChainInfo', 'tags'],
+  clients: ['id', 'name', 'industry', 'status', 'clientType', 'region', 'isKeyAccount', 'team', 'listCategory', 'isNewClient', 'contacts', 'customFields', 'typeProfile', 'ownerId', 'ownerName', 'equityStructure', 'subsidiaries', 'financialAnalysis', 'supplyChainInfo', 'tags'],
 };
 
 /** 数据库 JSON 类型列：导出时须为合法 JSON 文本，空串等脏数据归一为 NULL */

@@ -97,6 +97,8 @@ export interface Client {
   team?: string;
   /** 清单分类（重点营销客户大表的客户分类） */
   listCategory?: string;
+  /** 是否新建客户：true=是 false=否（存量清单客户默认否，手动新建默认是） */
+  isNewClient?: boolean;
   contacts: Contact[];
   
   // Owner info
