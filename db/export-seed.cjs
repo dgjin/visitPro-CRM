@@ -1,6 +1,7 @@
 /**
  * 导出当前系统数据为初始化种子数据（db/seed_data.sql）
  * 覆盖表：roles / departments / users / clients
+ * 不导出：visits（拜访记录）、ai_query_history / login_history（运行日志，新环境从空表开始）
  * 生成 INSERT IGNORE 语句，可重复执行：已存在的行（按主键）不会被覆盖。
  *
  * 执行方式（在 server/ 目录下，读取 server/.env 数据库配置）:

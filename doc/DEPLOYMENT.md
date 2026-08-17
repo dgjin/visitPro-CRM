@@ -55,7 +55,7 @@ mysql -u root < db/schema.sql
 mysql -u root visitpro < db/seed_data.sql
 ```
 
-`db/seed_data.sql` 为当前系统的完整数据快照（角色 5、部门 14、用户 43、客户 259，含重点客户标记、所属团队、清单分类等全部字段）。采用 `INSERT IGNORE` 语义，**可重复执行，已存在的行不会被覆盖**。
+`db/seed_data.sql` 为当前系统的完整数据快照（角色 5、部门 14、用户 43、客户 259（含客户负责人 ownerId/ownerName））。**不包含拜访记录（visits）与运行日志（智能问数历史、登录历史）**，这些在新环境中从空表开始。采用 `INSERT IGNORE` 语义，**可重复执行，已存在的行不会被覆盖**。
 
 > ⚠️ **该文件含用户手机号与密码哈希，已被 `.gitignore` 排除，仅保留在本地、不入版本库。**
 > 新环境获取方式二选一：
@@ -65,7 +65,7 @@ mysql -u root visitpro < db/seed_data.sql
 ### 3.3 重新生成种子数据（数据变更后）
 
 ```bash
-node db/export-seed.cjs    # 读取 server/.env 连接数据库，重新生成 db/seed_data.sql
+NODE_PATH=server/node_modules node db/export-seed.cjs    # 读取 server/.env 连接数据库，重新生成 db/seed_data.sql（不导出 visits 与运行日志表）
 ```
 
 ### 3.4 配置后端连接
