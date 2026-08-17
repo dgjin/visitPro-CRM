@@ -1,0 +1,110 @@
+-- ==========================================
+-- VisitPro CRM - 为已有数据库补充字段中文注释（COMMENT）
+-- 执行方式: MYSQL_PWD='***' mysql -h127.0.0.1 -uvisitpro visitpro < db/migrate_column_comments.sql
+-- 幂等：MODIFY COLUMN 仅更新注释，可重复执行
+-- ==========================================
+
+USE visitpro;
+
+-- 1. 角色表
+ALTER TABLE roles COMMENT='角色表';
+ALTER TABLE roles
+  MODIFY COLUMN id VARCHAR(64) NOT NULL COMMENT '角色ID',
+  MODIFY COLUMN name VARCHAR(100) NOT NULL COMMENT '角色名称',
+  MODIFY COLUMN description TEXT COMMENT '角色描述',
+  MODIFY COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间';
+
+-- 2. 部门表
+ALTER TABLE departments COMMENT='部门表';
+ALTER TABLE departments
+  MODIFY COLUMN id VARCHAR(64) NOT NULL COMMENT '部门ID',
+  MODIFY COLUMN name VARCHAR(100) NOT NULL COMMENT '部门名称',
+  MODIFY COLUMN parentId VARCHAR(64) NULL COMMENT '上级部门ID（自关联，树形结构）',
+  MODIFY COLUMN managerId VARCHAR(64) NULL COMMENT '部门负责人ID',
+  MODIFY COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间';
+
+-- 3. 用户表
+ALTER TABLE users COMMENT='用户表';
+ALTER TABLE users
+  MODIFY COLUMN id VARCHAR(64) NOT NULL COMMENT '用户ID',
+  MODIFY COLUMN name VARCHAR(100) NOT NULL COMMENT '用户姓名',
+  MODIFY COLUMN email VARCHAR(200) NULL COMMENT '邮箱（登录标识，唯一）',
+  MODIFY COLUMN phone VARCHAR(50) NULL COMMENT '手机号（登录标识，唯一）',
+  MODIFY COLUMN avatarUrl TEXT COMMENT '头像URL',
+  MODIFY COLUMN password VARCHAR(128) NULL COMMENT '密码（SHA-256 哈希）',
+  MODIFY COLUMN roleId VARCHAR(64) NULL COMMENT '角色ID',
+  MODIFY COLUMN departmentId VARCHAR(64) NULL COMMENT '所属部门ID',
+  MODIFY COLUMN status VARCHAR(20) NULL DEFAULT 'active' COMMENT '账号状态：active=启用 inactive=禁用',
+  MODIFY COLUMN must_change_password TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否须首次登录改密：1=是 0=否',
+  MODIFY COLUMN customFields JSON COMMENT '自定义字段（JSON）',
+  MODIFY COLUMN theme_preference VARCHAR(50) NULL COMMENT '主题偏好',
+  MODIFY COLUMN last_login_at DATETIME NULL COMMENT '最近登录时间',
+  MODIFY COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间';
+
+-- 4. 客户表
+ALTER TABLE clients COMMENT='客户表';
+ALTER TABLE clients
+  MODIFY COLUMN id VARCHAR(64) NOT NULL COMMENT '客户ID',
+  MODIFY COLUMN name VARCHAR(200) NOT NULL COMMENT '客户名称',
+  MODIFY COLUMN industry VARCHAR(100) NULL COMMENT '所属行业',
+  MODIFY COLUMN status VARCHAR(50) NULL COMMENT '客户状态：已签约/潜在客户/已流失/实施中',
+  MODIFY COLUMN clientType VARCHAR(20) NULL COMMENT '客户类型：地方政府/金融机构/产业客户',
+  MODIFY COLUMN region VARCHAR(100) NULL COMMENT '所属区域',
+  MODIFY COLUMN isKeyAccount TINYINT(1) NOT NULL DEFAULT 1 COMMENT '重点客户：1=是 0=否',
+  MODIFY COLUMN team VARCHAR(100) DEFAULT NULL COMMENT '所属团队',
+  MODIFY COLUMN listCategory VARCHAR(50) DEFAULT NULL COMMENT '清单分类（重点营销客户大表的客户分类）',
+  MODIFY COLUMN contacts JSON COMMENT '联系人列表（JSON）',
+  MODIFY COLUMN customFields JSON COMMENT '自定义字段（JSON）',
+  MODIFY COLUMN typeProfile JSON COMMENT '按客户类型区分的专属信息项（JSON）',
+  MODIFY COLUMN ownerId VARCHAR(64) NULL COMMENT '客户负责人ID',
+  MODIFY COLUMN ownerName VARCHAR(100) NULL COMMENT '客户负责人姓名',
+  MODIFY COLUMN equityStructure JSON COMMENT '股权结构：上游股东列表（JSON）',
+  MODIFY COLUMN subsidiaries JSON COMMENT '下游子公司列表（JSON）',
+  MODIFY COLUMN financialAnalysis MEDIUMTEXT COMMENT '财务分析（AI 生成）',
+  MODIFY COLUMN supplyChainInfo MEDIUMTEXT COMMENT '供应链信息（AI 生成）',
+  MODIFY COLUMN tags JSON COMMENT 'AI 生成标签（行业地位、财务状况等）',
+  MODIFY COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间';
+
+-- 5. 拜访记录表
+ALTER TABLE visits COMMENT='拜访记录表';
+ALTER TABLE visits
+  MODIFY COLUMN id VARCHAR(64) NOT NULL COMMENT '拜访记录ID',
+  MODIFY COLUMN clientId VARCHAR(64) NULL COMMENT '客户ID',
+  MODIFY COLUMN clientName VARCHAR(200) NULL COMMENT '客户名称',
+  MODIFY COLUMN date VARCHAR(50) NULL COMMENT '拜访日期（ISO 字符串）',
+  MODIFY COLUMN content MEDIUMTEXT COMMENT '拜访内容（原始笔记或语音转写文本）',
+  MODIFY COLUMN type VARCHAR(50) NULL COMMENT '拜访类型：线下拜访/线上会议/电话沟通/客户到访',
+  MODIFY COLUMN ownerId VARCHAR(64) NULL COMMENT '拜访人ID',
+  MODIFY COLUMN ownerName VARCHAR(100) NULL COMMENT '拜访人姓名',
+  MODIFY COLUMN location VARCHAR(200) NULL COMMENT '拜访地点',
+  MODIFY COLUMN clientContact VARCHAR(100) NULL COMMENT '拜访对象（主要联系人）',
+  MODIFY COLUMN clientContactRole VARCHAR(100) NULL COMMENT '拜访对象职位',
+  MODIFY COLUMN clientParticipants TEXT COMMENT '客户方其他参与人（逗号分隔）',
+  MODIFY COLUMN ourParticipants TEXT COMMENT '我方参与人（逗号分隔）',
+  MODIFY COLUMN recordingData MEDIUMTEXT COMMENT '录音数据（已废弃，兼容保留）',
+  MODIFY COLUMN recordings LONGTEXT COMMENT '录音列表（多段录音，JSON）',
+  MODIFY COLUMN customFields JSON COMMENT '自定义字段（JSON）',
+  MODIFY COLUMN summary MEDIUMTEXT COMMENT '拜访摘要（AI 生成）',
+  MODIFY COLUMN sentiment VARCHAR(20) NULL COMMENT '情感倾向：积极/中性/消极（AI 生成）',
+  MODIFY COLUMN actionItems JSON COMMENT '行动事项列表（AI 生成，JSON）',
+  MODIFY COLUMN followUpDraft MEDIUMTEXT COMMENT '跟进计划草稿（AI 生成）',
+  MODIFY COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间';
+
+-- 6. 登录历史表
+ALTER TABLE login_history COMMENT='登录历史表';
+ALTER TABLE login_history
+  MODIFY COLUMN id BIGINT NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  MODIFY COLUMN user_id VARCHAR(64) NULL COMMENT '用户ID',
+  MODIFY COLUMN login_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '登录时间',
+  MODIFY COLUMN ip_address VARCHAR(64) NULL COMMENT '登录IP地址',
+  MODIFY COLUMN user_agent TEXT COMMENT '浏览器UA';
+
+-- 7. 智能问数审计日志表
+ALTER TABLE ai_query_history COMMENT='智能问数审计日志表';
+ALTER TABLE ai_query_history
+  MODIFY COLUMN id BIGINT NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  MODIFY COLUMN user_id VARCHAR(100) NOT NULL COMMENT '提问用户ID',
+  MODIFY COLUMN question VARCHAR(500) NULL COMMENT '提问内容',
+  MODIFY COLUMN status VARCHAR(20) NULL COMMENT '查询状态：success/error 等',
+  MODIFY COLUMN detail VARCHAR(2000) NULL COMMENT '结果详情或错误信息',
+  MODIFY COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '提问时间';
