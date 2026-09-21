@@ -6,7 +6,10 @@ server:
 
 spring:
   datasource:
-    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:visitpro}?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8
+    # IPv6 支持：host 部分包裹方括号，DB_HOST=::1 时生成 jdbc:mysql://[::1]:3306/...（Connector/J 8.0.13+ 语法）。
+    # 本机 127.0.0.1:3306 被 Colima 转发占用，本地 MySQL 只能经 ::1 访问（详见 server/.env 注释）。
+    # 注意：若未来环境回归 IPv4 直连（127.0.0.1），需去掉此处方括号（[127.0.0.1] 无法被 Connector/J 解析）。
+    url: jdbc:mysql://[${DB_HOST:127.0.0.1}]:${DB_PORT:3306}/${DB_NAME:visitpro}?serverTimezone=UTC&useUnicode=true&characterEncoding=utf8
     username: ${DB_USER:visitpro}
     password: ${DB_PASSWORD:}
     hikari:
